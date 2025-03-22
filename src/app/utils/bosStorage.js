@@ -209,13 +209,13 @@ export async function uploadToBos(file, key) {
 
 // 从BOS key获取URL
 export function getUrlFromBosKey(key) {
-  // 首选自定义域名
-  if (process.env.BAIDU_BOS_DOMAIN) {
-    return `https://${process.env.BAIDU_BOS_DOMAIN}/${key}`;
-  }
+  // 使用完整URL格式，避免DNS解析问题
+  const domain = process.env.BAIDU_BOS_DOMAIN || `${process.env.BAIDU_BOS_BUCKET}.${process.env.BAIDU_BOS_ENDPOINT.replace(/^https?:\/\//, '')}`;
   
-  // 备用BOS域名
-  return `https://${process.env.BAIDU_BOS_BUCKET}.${process.env.BAIDU_BOS_ENDPOINT}/${key}`;
+  // 确保不重复 https://
+  const cleanDomain = domain.replace(/^https?:\/\//, '');
+  
+  return `https://${cleanDomain}/${key}`;
 }
 
 /**

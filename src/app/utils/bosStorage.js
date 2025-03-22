@@ -13,22 +13,20 @@ let bosClient = null;
 export function getBosClient() {
   if (!bosClient) {
     try {
-      // 保留 https:// 前缀
       const endpoint = process.env.BAIDU_BOS_ENDPOINT || 'https://gz.bcebos.com';
-      const ak = process.env.BAIDU_API_KEY;
-      const sk = process.env.BAIDU_SECRET_KEY;
+      // 处理可能的密钥格式问题
+      const ak = process.env.BAIDU_API_KEY ? process.env.BAIDU_API_KEY.trim() : '';
+      const sk = process.env.BAIDU_SECRET_KEY ? process.env.BAIDU_SECRET_KEY.trim() : '';
       
-      console.log(`初始化BOS客户端: 端点=${endpoint}, AK=${ak ? '已设置' : '未设置'}, SK=${sk ? '已设置' : '未设置'}`);
+      console.log(`初始化BOS客户端: 端点=${endpoint}, AK长度=${ak.length}, SK长度=${sk.length}`);
       
       bosClient = new BosClient({
-        endpoint: endpoint, // 保留完整URL
+        endpoint: endpoint,
         credentials: {
           ak: ak,
           sk: sk
-        },
-        sessionToken: null,
-        region: 'gz'
-        // 移除 domain 参数，可能与 endpoint 冲突
+        }
+        // 移除其他可能导致问题的参数
       });
     } catch (error) {
       console.error('初始化BOS客户端失败:', error);

@@ -99,26 +99,34 @@ export async function uploadImageToBos(imageBuffer, contSign, contentType = 'ima
   try {
     const client = getBosClient();
     const fileName = generateBosKey(null, contSign);
+    const bucket = process.env.BAIDU_BOS_BUCKET || 'ynnaiiamge';
     
-    console.log('上传图片到BOS:', { bucket: BOS_BUCKET, fileName, contentType });
+    console.log('尝试上传图片到BOS:', { bucket, fileName, contentType });
     
-    const result = await client.putObject(BOS_BUCKET, fileName, imageBuffer, {
-      contentType: contentType, // 使用传入的内容类型，默认为PNG
-      // 添加自定义元数据
-      metadata: {
-        'x-bce-meta-cont-sign': contSign,
-        'x-bce-meta-upload-time': new Date().toISOString(),
-        'x-bce-meta-content-type': contentType
-      }
+    // 验证桶存在
+    console.log('检查桶是否存在...');
+    await client.headBucket(bucket);
+    
+    console.log('桶已确认存在，开始上传...');
+    const result = await client.putObject(bucket, fileName, imageBuffer, {
+      contentType: contentType
     });
     
-    // 构建图片的公开访问URL
+    // 构建图片URL
     const imageUrl = getUrlFromBosKey(fileName);
     console.log('图片上传成功，URL:', imageUrl);
     
     return imageUrl;
   } catch (error) {
     console.error('上传图片到BOS失败:', error);
+    
+    // 提供更详细的错误信息
+    if (error.message.includes('bucket does not exist')) {
+      console.error('桶不存在错误，请检查桶名称和权限');
+    } else if (error.message.includes('signature')) {
+      console.error('签名错误，请检查AK/SK是否正确');
+    }
+    
     throw new Error(`上传图片到BOS失败: ${error.message}`);
   }
 }
@@ -139,9 +147,26 @@ export async function uploadToBos(file, key) {
     // 确定内容类型，默认为PNG
     const contentType = file.type || 'image/png';
     
+    // 获取正确的桶名
+    const bucket = process.env.BAIDU_BOS_BUCKET || 'ynnaiiamge';
+    
+    console.log('尝试上传文件到BOS:', { bucket, key, contentType });
+    
+    // 验证桶存在
+    try {
+      await client.headBucket(bucket);
+      console.log('桶已确认存在，开始上传...');
+    } catch (err) {
+      console.error('检查桶失败:', err);
+      return {
+        success: false,
+        message: `桶访问错误: ${err.message}`
+      };
+    }
+    
     // 使用正确的参数顺序上传到BOS
     const result = await client.putObject(
-      process.env.BAIDU_BOS_BUCKET,
+      bucket,
       key,
       Buffer.from(buffer),
       {
@@ -155,6 +180,7 @@ export async function uploadToBos(file, key) {
     
     // 构建文件URL
     const fileUrl = getUrlFromBosKey(key);
+    console.log('文件上传成功，URL:', fileUrl);
     
     return {
       success: true,
@@ -165,9 +191,18 @@ export async function uploadToBos(file, key) {
     };
   } catch (error) {
     console.error('上传到BOS失败:', error);
+    
+    // 提供更详细的错误信息
+    if (error.message.includes('bucket does not exist')) {
+      console.error('桶不存在错误，请检查桶名称和权限');
+    } else if (error.message.includes('signature')) {
+      console.error('签名错误，请检查AK/SK是否正确');
+    }
+    
     return {
       success: false,
-      message: error.message
+      message: error.message,
+      error: error
     };
   }
 }

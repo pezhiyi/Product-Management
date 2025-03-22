@@ -1,6 +1,5 @@
 "use client";
 import { useState, useRef } from 'react';
-import styles from '../page.module.css';
 
 export default function TestUploadPage() {
   const [file, setFile] = useState(null);
@@ -70,11 +69,11 @@ export default function TestUploadPage() {
   };
 
   return (
-    <div className={styles.container}>
-      <main className={styles.main}>
-        <h1 className={styles.title}>BOS 上传测试</h1>
+    <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px' }}>
+      <main style={{ minHeight: '100vh', padding: '20px 0' }}>
+        <h1 style={{ fontSize: '2rem', textAlign: 'center', marginBottom: '20px' }}>BOS 上传测试</h1>
         
-        <div className={styles.card} style={{ maxWidth: '800px', margin: '20px auto' }}>
+        <div style={{ border: '1px solid #eaeaea', borderRadius: '10px', padding: '20px', maxWidth: '800px', margin: '20px auto', backgroundColor: '#fff', boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}>
           <h2>选择文件并上传</h2>
           
           <div style={{ margin: '20px 0' }}>

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAllUrlMappings } from '../../../../utils/urlStorage';
+import { getAllUrlMappings } from '../../../utils/urlStorage';
 
 export async function GET(request) {
   try {

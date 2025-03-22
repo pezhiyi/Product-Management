@@ -13,10 +13,10 @@ let bosClient = null;
 export function getBosClient() {
   if (!bosClient) {
     bosClient = new BosClient({
-      endpoint: BOS_ENDPOINT,
+      endpoint: process.env.BAIDU_BOS_ENDPOINT || 'https://gz.bcebos.com',
       credentials: {
-        ak: BOS_AK,
-        sk: BOS_SK
+        ak: process.env.BAIDU_API_KEY,
+        sk: process.env.BAIDU_SECRET_KEY
       }
     });
   }

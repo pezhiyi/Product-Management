@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { uploadToBos, generateBosKey } from '../../utils/bosStorage';
 
-// 移除 edge runtime 配置
-// export const runtime = 'edge';
+// 使用新的路由段配置
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 // 添加 OPTIONS 处理
 export async function OPTIONS(request) {
@@ -15,14 +16,6 @@ export async function OPTIONS(request) {
     },
   });
 }
-
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '100mb',
-    },
-  },
-};
 
 export async function POST(request) {
   try {

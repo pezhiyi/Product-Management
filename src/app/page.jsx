@@ -96,9 +96,12 @@ export default function Home() {
     setError('');
 
     try {
-      // 1. 先添加到搜索库
+      // 压缩图片用于搜索
+      const searchImageBlob = await compressImage(uploadedImage, 2); // 压缩到2MB
+      
+      // 添加到搜索库
       const searchFormData = new FormData();
-      searchFormData.append('image', uploadedImage);
+      searchFormData.append('image', searchImageBlob);
       searchFormData.append('mode', 'add');
       searchFormData.append('filename', uploadedImage.name);
       

@@ -30,26 +30,31 @@ export default function ImageUpload({ onImageUpload, onSearch, hasImage, uploade
     return () => document.removeEventListener('paste', handlePaste);
   }, []);
   
-  // 修改存储方式，使用压缩后的预览图存储
-  const storeImageData = async (file) => {
+  // 修改图片预览处理
+  const processUploadedFile = async (file, autoSearch = false) => {
+    if (!file) return;
+    
+    // 检查文件类型
+    if (!supportedFormats.includes(file.type)) {
+      alert('不支持的文件格式，请上传 JPG, PNG, WEBP, GIF 或 BMP 图片');
+      return;
+    }
+
     try {
-      // 创建一个小预览图用于存储
-      const img = new Image();
-      const reader = new FileReader();
+      // 创建预览URL
+      const previewUrl = URL.createObjectURL(file);
+      setPreview(previewUrl);
       
+      // 创建小尺寸预览图
+      const img = new Image();
       await new Promise((resolve, reject) => {
-        reader.onload = (e) => {
-          img.onload = resolve;
-          img.onerror = reject;
-          img.src = e.target.result;
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = previewUrl;
       });
 
-      // 创建一个小尺寸的预览图
       const canvas = document.createElement('canvas');
-      const MAX_PREVIEW_SIZE = 800; // 预览图最大尺寸
+      const MAX_PREVIEW_SIZE = 400; // 更小的预览尺寸
       let width = img.width;
       let height = img.height;
       
@@ -66,53 +71,18 @@ export default function ImageUpload({ onImageUpload, onSearch, hasImage, uploade
       
       // 存储压缩后的预览图
       const previewDataUrl = canvas.toDataURL('image/jpeg', 0.6);
-      localStorage.setItem('lastUploadedImage', previewDataUrl);
+      localStorage.setItem('lastUploadedImagePreview', previewDataUrl);
       localStorage.setItem('lastUploadedImageName', file.name);
       localStorage.setItem('lastUploadedImageType', file.type);
       
-      console.log('预览图已保存到 localStorage');
+      // 调用上传回调
+      onImageUpload(file, autoSearch);
+      
     } catch (error) {
-      console.error('保存预览图失败:', error);
-    }
-  };
-  
-  // 处理上传的文件
-  const processUploadedFile = (file, autoSearch = false) => {
-    if (!file) return;
-    
-    // 检查文件类型
-    if (!supportedFormats.includes(file.type)) {
-      alert('不支持的文件格式，请上传 JPG, PNG, WEBP, GIF 或 BMP 图片');
-      return;
-    }
-
-    // 创建预览URL
-    const previewUrl = URL.createObjectURL(file);
-    setPreview(previewUrl);
-    
-    // 缓存图片数据到本地存储
-    storeImageData(file);
-    
-    // 调用上传回调
-    onImageUpload(file, autoSearch);
-    
-    // 如果是自动搜索，显示提示
-    if (autoSearch) {
-      const toastContainer = document.createElement('div');
-      toastContainer.className = 'fixed bottom-4 right-4 bg-blue-600 text-white px-4 py-2 rounded-md shadow-lg z-50';
-      toastContainer.innerHTML = `
-        <div class="flex items-center">
-          <svg class="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-          </svg>
-          已粘贴图片并自动开始搜索...
-        </div>
-      `;
-      document.body.appendChild(toastContainer);
-      setTimeout(() => {
-        toastContainer.style.opacity = '0';
-        setTimeout(() => toastContainer.remove(), 300);
-      }, 3000);
+      console.error('处理图片失败:', error);
+    } finally {
+      // 清理预览URL
+      URL.revokeObjectURL(previewUrl);
     }
   };
   

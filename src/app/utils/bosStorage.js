@@ -310,4 +310,7 @@ export function getImageUrlFromSearchItem(item) {
   }
   
   return null;
-} 
+}
+
+// 确保这些函数被正确导出
+export { getBosClient, generateBosKey, getUrlFromBosKey }; 

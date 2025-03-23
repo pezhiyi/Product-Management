@@ -9,6 +9,7 @@ import Gallery from './components/ImageLibrary/Gallery';
 import Header from './components/Header';
 import { addToLibrary } from './utils/libraryStorage';
 import ShipmentList from './components/ShipmentManagement/ShipmentList';
+import { getBosClient, generateBosKey, getUrlFromBosKey } from './utils/bosStorage';
 
 export default function Home() {
   const [uploadedImage, setUploadedImage] = useState(null);
@@ -119,35 +120,50 @@ export default function Home() {
       if (searchData.cont_sign) {
         console.log('搜索库添加成功，开始上传原图到BOS...');
         
-        // 使用 fetch 直接上传到 BOS
-        const bosClient = getBosClient();
-        const bosKey = generateBosKey(null, searchData.cont_sign);
-        
-        const result = await bosClient.putObjectFromBlob(
-          process.env.BAIDU_BOS_BUCKET,
-          bosKey,
-          uploadedImage,
-          {
-            'Content-Type': uploadedImage.type || 'image/png',
-            'x-bce-meta-original-filename': uploadedImage.name
+        try {
+          // 获取 BOS 客户端
+          const bosClient = getBosClient();
+          if (!bosClient) {
+            throw new Error('无法初始化BOS客户端');
           }
-        );
-        
-        if (!result) {
-          throw new Error('上传到BOS失败');
+
+          const bosKey = generateBosKey(null, searchData.cont_sign);
+          console.log('准备上传到BOS:', {
+            bucket: process.env.NEXT_PUBLIC_BAIDU_BOS_BUCKET,
+            key: bosKey,
+            fileSize: uploadedImage.size
+          });
+          
+          const result = await bosClient.putObjectFromBlob(
+            process.env.NEXT_PUBLIC_BAIDU_BOS_BUCKET,
+            bosKey,
+            uploadedImage,
+            {
+              'Content-Type': uploadedImage.type || 'image/png',
+              'x-bce-meta-original-filename': uploadedImage.name
+            }
+          );
+          
+          if (!result) {
+            throw new Error('上传到BOS失败');
+          }
+          
+          const bosUrl = getUrlFromBosKey(bosKey);
+          console.log('BOS上传成功:', { bosUrl });
+          
+          // 3. 添加到本地图库
+          addToLibrary({
+            cont_sign: searchData.cont_sign,
+            bosUrl: bosUrl,
+            filesize: uploadedImage.size,
+            filename: uploadedImage.name,
+          });
+          
+          setSuccessMessage('图片已成功添加到搜索图库和商品图库');
+        } catch (bosError) {
+          console.error('BOS上传错误:', bosError);
+          throw new Error(`上传到BOS失败: ${bosError.message}`);
         }
-        
-        const bosUrl = getUrlFromBosKey(bosKey);
-        
-        // 3. 添加到本地图库
-        addToLibrary({
-          cont_sign: searchData.cont_sign,
-          bosUrl: bosUrl,
-          filesize: uploadedImage.size,
-          filename: uploadedImage.name,
-        });
-        
-        setSuccessMessage('图片已成功添加到搜索图库和商品图库');
       } else {
         setSuccessMessage('图片已添加到搜索图库');
       }

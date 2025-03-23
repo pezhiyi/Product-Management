@@ -46,34 +46,41 @@ export default function ImageUpload({ onImageUpload, onSearch, hasImage, uploade
       setPreview(previewUrl);
       
       // 创建小尺寸预览图
-      const img = new Image();
+      const img = document.createElement('img');
+      
       await new Promise((resolve, reject) => {
-        img.onload = resolve;
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            const MAX_PREVIEW_SIZE = 400; // 更小的预览尺寸
+            let width = img.width;
+            let height = img.height;
+            
+            if (width > MAX_PREVIEW_SIZE) {
+              const ratio = MAX_PREVIEW_SIZE / width;
+              width = MAX_PREVIEW_SIZE;
+              height = Math.round(height * ratio);
+            }
+            
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            // 存储压缩后的预览图
+            const previewDataUrl = canvas.toDataURL('image/jpeg', 0.6);
+            localStorage.setItem('lastUploadedImagePreview', previewDataUrl);
+            localStorage.setItem('lastUploadedImageName', file.name);
+            localStorage.setItem('lastUploadedImageType', file.type);
+            
+            resolve();
+          } catch (err) {
+            reject(err);
+          }
+        };
         img.onerror = reject;
         img.src = previewUrl;
       });
-
-      const canvas = document.createElement('canvas');
-      const MAX_PREVIEW_SIZE = 400; // 更小的预览尺寸
-      let width = img.width;
-      let height = img.height;
-      
-      if (width > MAX_PREVIEW_SIZE) {
-        const ratio = MAX_PREVIEW_SIZE / width;
-        width = MAX_PREVIEW_SIZE;
-        height = Math.round(height * ratio);
-      }
-      
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, width, height);
-      
-      // 存储压缩后的预览图
-      const previewDataUrl = canvas.toDataURL('image/jpeg', 0.6);
-      localStorage.setItem('lastUploadedImagePreview', previewDataUrl);
-      localStorage.setItem('lastUploadedImageName', file.name);
-      localStorage.setItem('lastUploadedImageType', file.type);
       
       // 调用上传回调
       onImageUpload(file, autoSearch);
@@ -110,10 +117,10 @@ export default function ImageUpload({ onImageUpload, onSearch, hasImage, uploade
     e.stopPropagation();
     setIsDragging(false);
     
-    const dt = e.dataTransfer;
-    const file = dt.files[0];
-    
-    processUploadedFile(file);
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      processUploadedFile(file);
+    }
   };
 
   // 初始预览状态同步

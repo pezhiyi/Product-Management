@@ -55,28 +55,7 @@ export default function Home() {
       // 保存文件到状态
       setUploadedImage(file);
       
-      // 保存到 localStorage - 添加错误处理和日志
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        try {
-          localStorage.setItem('lastUploadedImage', reader.result);
-          localStorage.setItem('lastUploadedImageName', file.name);
-          localStorage.setItem('lastUploadedImageType', file.type);
-          
-          console.log('图片已保存到 localStorage:', {
-            name: file.name,
-            type: file.type,
-            size: file.size
-          });
-        } catch (error) {
-          console.error('保存到 localStorage 失败:', error);
-        }
-      };
-      reader.onerror = (error) => {
-        console.error('读取文件失败:', error);
-      };
-      reader.readAsDataURL(file);
-
+      // 如果需要自动搜索
       if (autoSearch) {
         handleSearch(file);
       }

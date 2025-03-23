@@ -9,7 +9,13 @@ import Gallery from './components/ImageLibrary/Gallery';
 import Header from './components/Header';
 import { addToLibrary } from './utils/libraryStorage';
 import ShipmentList from './components/ShipmentManagement/ShipmentList';
-import { getBosClient, generateBosKey, getUrlFromBosKey } from './utils/bosStorage';
+import { 
+  getBosClient, 
+  generateBosKey, 
+  getPreviewUrl,
+  uploadToBos 
+} from './utils/bosStorage';
+import { compressImage } from './utils/imageProcessor';
 
 export default function Home() {
   const [uploadedImage, setUploadedImage] = useState(null);
@@ -54,6 +60,7 @@ export default function Home() {
     try {
       // 保存文件到状态
       setUploadedImage(file);
+      setError(''); // 清除之前的错误
       
       // 如果需要自动搜索
       if (autoSearch) {
@@ -62,6 +69,7 @@ export default function Home() {
     } catch (error) {
       console.error('处理图片文件失败:', error);
       setError('处理图片文件失败，请重试');
+      setUploadedImage(null);
     }
   };
 
@@ -73,6 +81,7 @@ export default function Home() {
 
     setIsLoading(true);
     setError('');
+    setSuccessMessage('');
 
     try {
       // 检查BOS客户端
@@ -81,10 +90,10 @@ export default function Home() {
         throw new Error('BOS客户端初始化失败，请检查配置');
       }
 
-      // 压缩图片
+      // 压缩图片用于搜索库
       const searchImageBlob = await compressImage(uploadedImage, 2);
       
-      // 2. 添加到搜索库
+      // 添加到搜索库
       const searchFormData = new FormData();
       searchFormData.append('image', searchImageBlob);
       searchFormData.append('mode', 'add');
@@ -102,7 +111,7 @@ export default function Home() {
       
       const searchData = await searchResponse.json();
       
-      // 3. 如果搜索库添加成功，上传原图到BOS
+      // 如果搜索库添加成功，上传原图到BOS
       if (searchData.cont_sign) {
         const bosKey = generateBosKey(null, searchData.cont_sign);
         
@@ -113,7 +122,7 @@ export default function Home() {
           throw new Error(bosResult.message || '上传到BOS失败');
         }
         
-        // 4. 添加到本地图库
+        // 添加到本地图库
         addToLibrary({
           cont_sign: searchData.cont_sign,
           bosUrl: bosResult.url,
@@ -123,6 +132,12 @@ export default function Home() {
         });
         
         setSuccessMessage('图片已成功添加到搜索图库和商品图库');
+        
+        // 清理状态
+        setTimeout(() => {
+          setSuccessMessage('');
+          setUploadedImage(null);
+        }, 3000);
       }
     } catch (error) {
       console.error('添加图库错误:', error);
@@ -132,112 +147,40 @@ export default function Home() {
     }
   };
 
-  // 改进的图片压缩函数
-  const compressImage = (file, maxSizeMB) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      
-      reader.onload = (event) => {
-        const img = new window.Image();
-        img.src = event.target.result;
-        
-        img.onload = () => {
-          let quality = 0.9; // 提高初始质量 (从0.7改为0.9)
-          let canvas = document.createElement('canvas');
-          let ctx = canvas.getContext('2d');
-          
-          // 计算新的尺寸，保持宽高比
-          let width = img.width;
-          let height = img.height;
-          
-          // 调整最大宽度限制
-          const MAX_WIDTH = 2048; // 增加最大宽度 (从1024改为2048)
-          if (width > MAX_WIDTH) {
-            const ratio = MAX_WIDTH / width;
-            width = MAX_WIDTH;
-            height = Math.round(height * ratio);
-          }
-          
-          // 设置画布尺寸
-          canvas.width = width;
-          canvas.height = height;
-          
-          // 绘制图片
-          ctx.drawImage(img, 0, 0, width, height);
-          
-          // 使用递归压缩直到小于maxSizeMB
-          const compressLoop = (q) => {
-            canvas.toBlob((blob) => {
-              const sizeMB = blob.size / (1024 * 1024);
-              console.log('压缩尝试:', {
-                quality: q.toFixed(2),
-                size: sizeMB.toFixed(2) + 'MB'
-              });
-              
-              if (sizeMB <= maxSizeMB || q <= 0.5) { // 提高最小质量限制 (从0.1改为0.5)
-                console.log('压缩完成:', {
-                  finalQuality: q.toFixed(2),
-                  finalSize: sizeMB.toFixed(2) + 'MB',
-                  width,
-                  height
-                });
-                resolve(blob);
-              } else {
-                // 减小压缩步长
-                q -= 0.1; // 减小步长 (从0.2改为0.1)
-                compressLoop(Math.max(0.5, q)); // 确保不低于0.5
-              }
-            }, 'image/jpeg', q); // 保持JPEG格式
-          };
-          
-          compressLoop(quality);
-        };
-        
-        img.onerror = () => {
-          reject(new Error('图片加载失败'));
-        };
-      };
-      
-      reader.onerror = () => {
-        reject(new Error('文件读取失败'));
-      };
-    });
-  };
+  const handleSearch = async (imageFile = null) => {
+    const fileToSearch = imageFile || uploadedImage;
+    if (!fileToSearch) {
+      setError('请先上传图片');
+      return;
+    }
 
-  const handleSearch = async (file) => {
     setIsLoading(true);
     setError('');
-    
-    try {
-      if (!file) {
-        throw new Error('请先上传图片文件');
-      }
+    setSearchResults([]);
 
-      // 创建 FormData
+    try {
+      // 压缩图片用于搜索
+      const searchImageBlob = await compressImage(fileToSearch, 2);
+      
       const formData = new FormData();
-      formData.append('image', file);
+      formData.append('image', searchImageBlob);
       formData.append('mode', 'search');
       
       const response = await fetch('/api/baidu/search', {
         method: 'POST',
         body: formData,
       });
-      
-      const data = await response.json();
-      
+
       if (!response.ok) {
-        throw new Error(data.message || '搜索失败');
+        const errorData = await response.json();
+        throw new Error(errorData.message || '搜索失败');
       }
-      
+
+      const data = await response.json();
       setSearchResults(data.results || []);
-      
-      if (!data.results?.length) {
-        setError('未找到相似图片，请尝试其他图片或先添加图片到库中');
-      }
     } catch (error) {
-      console.error('搜索失败:', error);
-      setError(error.message);
+      console.error('搜索错误:', error);
+      setError(error.message || '搜索失败，请重试');
     } finally {
       setIsLoading(false);
     }

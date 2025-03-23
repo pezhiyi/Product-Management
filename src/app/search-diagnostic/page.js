@@ -1,3 +1,5 @@
+import ClientDiagnostic from '../components/ClientDiagnostic';
+
 export default function SearchDiagnosticPage() {
   return (
     <div className="container mx-auto py-8 px-4">
@@ -7,17 +9,4 @@ export default function SearchDiagnosticPage() {
       </div>
     </div>
   );
-}
-
-"use client";
-import dynamic from 'next/dynamic';
-
-// 动态导入诊断组件，避免在服务器端渲染期间加载
-const DiagnosticUploader = dynamic(() => import('../components/DiagnosticUploader'), {
-  ssr: false,
-  loading: () => <div className="p-4 border rounded-lg bg-white">正在加载诊断工具...</div>
-});
-
-function ClientDiagnostic() {
-  return <DiagnosticUploader />;
 } 

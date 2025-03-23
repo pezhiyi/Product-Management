@@ -42,9 +42,19 @@ export default function Home() {
     }
 
     try {
-      // 直接使用原始文件，不再存储到状态
+      // 保存文件到状态
+      setUploadedImage(file);
+      
+      // 保存到 localStorage
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        localStorage.setItem('lastUploadedImage', reader.result);
+        localStorage.setItem('lastUploadedImageName', file.name);
+        localStorage.setItem('lastUploadedImageType', file.type);
+      };
+      reader.readAsDataURL(file);
+
       if (autoSearch) {
-        // 如果是自动搜索（粘贴），直接搜索
         handleSearch(file);
       }
     } catch (error) {

@@ -73,30 +73,40 @@ export default function Home() {
     setError('');
 
     try {
-      // 第一步：准备图片处理
-      const imageSize = uploadedImage.size / (1024 * 1024); // 转换为MB
-      let searchImageBlob = uploadedImage;
+      // 总是压缩用于搜索的图片
+      console.log('开始处理图片:', {
+        size: (uploadedImage.size / (1024 * 1024)).toFixed(2) + 'MB',
+        type: uploadedImage.type,
+        name: uploadedImage.name
+      });
       
-      // 如果图片大于3MB，为搜索图库压缩图片
-      if (imageSize > 3) {
-        searchImageBlob = await compressImage(uploadedImage, 3);
-        console.log('图片已压缩用于搜索图库，原始大小:', imageSize.toFixed(2), 'MB, 压缩后:', 
-          (searchImageBlob.size / (1024 * 1024)).toFixed(2), 'MB');
-      }
+      // 压缩图片用于搜索库
+      const searchImageBlob = await compressImage(uploadedImage, 2); // 压缩到2MB以确保安全
+      console.log('压缩完成:', {
+        originalSize: (uploadedImage.size / (1024 * 1024)).toFixed(2) + 'MB',
+        compressedSize: (searchImageBlob.size / (1024 * 1024)).toFixed(2) + 'MB'
+      });
       
-      // 第二步：准备表单数据
+      // 准备表单数据
       const formData = new FormData();
-      formData.append('image', searchImageBlob); // 可能是压缩后的或原始图片
-      formData.append('originalImage', uploadedImage); // 总是使用原始图片
+      formData.append('image', searchImageBlob); // 压缩后的图片用于搜索
+      formData.append('originalImage', uploadedImage); // 原始图片用于BOS存储
       formData.append('mode', 'add');
       formData.append('filename', uploadedImage.name);
       formData.append('filesize', uploadedImage.size);
       
-      // 第三步：发送到统一的处理API
+      console.log('发送请求...');
+      
       const response = await fetch('/api/baidu/add', {
         method: 'POST',
         body: formData,
       });
+      
+      // 检查响应类型
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error(`服务器返回了非JSON响应: ${contentType}`);
+      }
       
       const data = await response.json();
       
@@ -118,20 +128,20 @@ export default function Home() {
       }
       
     } catch (error) {
+      console.error('添加图库错误:', error);
       setError(error.message);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // 图片压缩函数
+  // 改进的图片压缩函数
   const compressImage = (file, maxSizeMB) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
       
       reader.onload = (event) => {
-        // 使用全局 window.Image 而不是导入的 Next.js Image 组件
         const img = new window.Image();
         img.src = event.target.result;
         
@@ -140,9 +150,17 @@ export default function Home() {
           let canvas = document.createElement('canvas');
           let ctx = canvas.getContext('2d');
           
-          // 保持宽高比例
+          // 计算新的尺寸，保持宽高比
           let width = img.width;
           let height = img.height;
+          
+          // 如果图片尺寸过大，先缩小尺寸
+          const MAX_WIDTH = 1024;
+          if (width > MAX_WIDTH) {
+            const ratio = MAX_WIDTH / width;
+            width = MAX_WIDTH;
+            height = Math.round(height * ratio);
+          }
           
           // 设置画布尺寸
           canvas.width = width;
@@ -154,15 +172,26 @@ export default function Home() {
           // 使用递归压缩直到小于maxSizeMB
           const compressLoop = (q) => {
             canvas.toBlob((blob) => {
-              // 检查大小
-              if (blob.size / (1024 * 1024) <= maxSizeMB || q <= 0.1) {
+              const sizeMB = blob.size / (1024 * 1024);
+              console.log('压缩尝试:', {
+                quality: q.toFixed(2),
+                size: sizeMB.toFixed(2) + 'MB'
+              });
+              
+              if (sizeMB <= maxSizeMB || q <= 0.1) {
+                console.log('压缩完成:', {
+                  finalQuality: q.toFixed(2),
+                  finalSize: sizeMB.toFixed(2) + 'MB',
+                  width,
+                  height
+                });
                 resolve(blob);
               } else {
-                // 继续压缩
-                q -= 0.1;
-                compressLoop(q);
+                // 继续压缩，更大的压缩步长
+                q -= 0.2;
+                compressLoop(Math.max(0.1, q));
               }
-            }, file.type, q);
+            }, 'image/jpeg', q); // 统一使用JPEG格式
           };
           
           compressLoop(quality);

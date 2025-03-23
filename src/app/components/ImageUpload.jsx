@@ -8,6 +8,7 @@ export default function ImageUpload({ onImageUpload, onSearch, hasImage, uploade
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef(null);
   const dropAreaRef = useRef(null);
+  const [error, setError] = useState(null);
 
   // 支持的文件格式
   const supportedFormats = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'image/gif', 'image/bmp'];
@@ -34,59 +35,21 @@ export default function ImageUpload({ onImageUpload, onSearch, hasImage, uploade
   const processUploadedFile = async (file, autoSearch = false) => {
     if (!file) return;
     
-    let previewUrl = null;
     try {
-      // 创建预览URL
-      previewUrl = URL.createObjectURL(file);
+      // 检查文件类型
+      if (!file.type.startsWith('image/')) {
+        throw new Error('请上传图片文件');
+      }
+      
+      // 创建预览
+      const previewUrl = URL.createObjectURL(file);
       setPreview(previewUrl);
       
-      // 2. 创建小尺寸预览图用于存储
-      const img = document.createElement('img');
-      
-      await new Promise((resolve, reject) => {
-        img.onload = () => {
-          try {
-            // 3. 创建小尺寸的canvas
-            const canvas = document.createElement('canvas');
-            const MAX_PREVIEW_SIZE = 400;
-            let width = img.width;
-            let height = img.height;
-            
-            if (width > MAX_PREVIEW_SIZE) {
-              const ratio = MAX_PREVIEW_SIZE / width;
-              width = MAX_PREVIEW_SIZE;
-              height = Math.round(height * ratio);
-            }
-            
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, width, height);
-            
-            // 4. 存储压缩后的预览图到localStorage
-            const previewDataUrl = canvas.toDataURL('image/jpeg', 0.6);
-            localStorage.setItem('lastUploadedImagePreview', previewDataUrl);
-            localStorage.setItem('lastUploadedImageName', file.name);
-            localStorage.setItem('lastUploadedImageType', file.type);
-            
-            resolve();
-          } catch (err) {
-            reject(err);
-          }
-        };
-        img.onerror = reject;
-        img.src = previewUrl;
-      });
-      
-      // 5. 调用上传回调
-      onImageUpload(file, autoSearch);
-      
+      // 调用父组件的上传处理
+      await onImageUpload(file, autoSearch);
     } catch (error) {
-      console.error('处理图片失败:', error);
-    } finally {
-      if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
-      }
+      console.error('图片上传错误:', error);
+      setError(error.message);
     }
   };
   

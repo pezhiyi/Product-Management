@@ -16,6 +16,7 @@ import {
   uploadToBos 
 } from './utils/bosStorage';
 import { compressImage } from './utils/imageProcessor';
+import ErrorBoundary from './components/ErrorBoundary';
 
 export default function Home() {
   const [uploadedImage, setUploadedImage] = useState(null);
@@ -51,24 +52,20 @@ export default function Home() {
     });
   }, [uploadedImage]);
 
-  const handleImageUpload = async (file, autoSearch = false) => {
-    if (!file) {
-      setError('请选择有效的图片文件');
-      return;
-    }
-
+  const handleImageUpload = async (file) => {
     try {
-      // 保存文件到状态
-      setUploadedImage(file);
-      setError(''); // 清除之前的错误
-      
-      // 如果需要自动搜索
-      if (autoSearch) {
-        handleSearch(file);
+      if (!file) {
+        throw new Error('请选择图片文件');
       }
+      
+      // 清除之前的状态
+      setError('');
+      setSuccessMessage('');
+      setUploadedImage(file);
+      
     } catch (error) {
-      console.error('处理图片文件失败:', error);
-      setError('处理图片文件失败，请重试');
+      console.error('处理图片失败:', error);
+      setError(error.message);
       setUploadedImage(null);
     }
   };
@@ -212,78 +209,80 @@ export default function Home() {
   };
 
   return (
-    <main className="h-screen flex flex-col bg-gray-50">
-      <Header activeTab={activeTab} onTabChange={setActiveTab} />
-      
-      <div className="flex-grow p-4 sm:p-6 overflow-hidden">
-        {activeTab === 'search' ? (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-full">
-            <div className="bg-white border border-gray-100 rounded-lg shadow-sm p-4 flex flex-col h-[calc(100vh-160px)] lg:h-auto">
-              <h2 className="text-base font-medium text-gray-700 mb-3 flex items-center">
-                <svg className="w-4 h-4 mr-2 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" 
-                    d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                图片上传
-              </h2>
-              
-              <div className="flex-grow mb-3">
-                <ImageUpload 
-                  onImageUpload={handleImageUpload} 
-                  onSearch={handleSearch}
-                  hasImage={!!uploadedImage} 
-                  uploadedImage={uploadedImage}
-                />
+    <ErrorBoundary>
+      <main className="h-screen flex flex-col bg-gray-50">
+        <Header activeTab={activeTab} onTabChange={setActiveTab} />
+        
+        <div className="flex-grow p-4 sm:p-6 overflow-hidden">
+          {activeTab === 'search' ? (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-full">
+              <div className="bg-white border border-gray-100 rounded-lg shadow-sm p-4 flex flex-col h-[calc(100vh-160px)] lg:h-auto">
+                <h2 className="text-base font-medium text-gray-700 mb-3 flex items-center">
+                  <svg className="w-4 h-4 mr-2 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" 
+                      d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  图片上传
+                </h2>
+                
+                <div className="flex-grow mb-3">
+                  <ImageUpload 
+                    onImageUpload={handleImageUpload} 
+                    onSearch={handleSearch}
+                    hasImage={!!uploadedImage} 
+                    uploadedImage={uploadedImage}
+                  />
+                </div>
+                
+                <div>
+                  <SearchControls 
+                    onAddToLibrary={handleAddToLibrary} 
+                    onSearch={handleSearch} 
+                    isLoading={isLoading} 
+                  />
+                  
+                  {error && (
+                    <div className="mt-2 p-2 bg-red-50 text-red-600 text-sm rounded-md">
+                      {error}
+                    </div>
+                  )}
+                  
+                  {successMessage && (
+                    <div className="mt-2 p-2 bg-green-50 text-green-600 text-sm rounded-md">
+                      {successMessage}
+                    </div>
+                  )}
+                </div>
               </div>
               
-              <div>
-                <SearchControls 
-                  onAddToLibrary={handleAddToLibrary} 
-                  onSearch={handleSearch} 
-                  isLoading={isLoading} 
-                />
-                
-                {error && (
-                  <div className="mt-2 p-2 bg-red-50 text-red-600 text-sm rounded-md">
-                    {error}
-                  </div>
-                )}
-                
-                {successMessage && (
-                  <div className="mt-2 p-2 bg-green-50 text-green-600 text-sm rounded-md">
-                    {successMessage}
-                  </div>
-                )}
+              <div className="bg-white border border-gray-100 rounded-lg shadow-sm lg:col-span-2 p-4 flex flex-col h-[calc(100vh-160px)] lg:h-[calc(100vh-160px)] overflow-hidden">
+                <h2 className="text-base font-medium text-gray-700 mb-3 flex items-center">
+                  <svg className="w-4 h-4 mr-2 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" 
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  搜索结果
+                </h2>
+                <div className="flex-grow overflow-auto pr-1">
+                  <ResultGrid results={searchResults} isLoading={isLoading} isMobile={isMobile} />
+                </div>
               </div>
             </div>
-            
-            <div className="bg-white border border-gray-100 rounded-lg shadow-sm lg:col-span-2 p-4 flex flex-col h-[calc(100vh-160px)] lg:h-[calc(100vh-160px)] overflow-hidden">
-              <h2 className="text-base font-medium text-gray-700 mb-3 flex items-center">
-                <svg className="w-4 h-4 mr-2 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" 
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-                搜索结果
-              </h2>
-              <div className="flex-grow overflow-auto pr-1">
-                <ResultGrid results={searchResults} isLoading={isLoading} isMobile={isMobile} />
-              </div>
+          ) : activeTab === 'library' ? (
+            <div className="bg-white border border-gray-100 rounded-lg shadow-sm w-full h-full p-4 overflow-auto">
+              <Gallery onSelectImage={handleSelectFromLibrary} />
             </div>
-          </div>
-        ) : activeTab === 'library' ? (
-          <div className="bg-white border border-gray-100 rounded-lg shadow-sm w-full h-full p-4 overflow-auto">
-            <Gallery onSelectImage={handleSelectFromLibrary} />
-          </div>
-        ) : (
-          <div className="bg-white border border-gray-100 rounded-lg shadow-sm w-full h-full p-4 overflow-auto">
-            <ShipmentList />
-          </div>
-        )}
-      </div>
-      
-      <footer className="py-2 text-center text-gray-500 text-xs border-t border-gray-200">
-        <p>YnnAI独立开发 © {new Date().getFullYear()}</p>
-      </footer>
-    </main>
+          ) : (
+            <div className="bg-white border border-gray-100 rounded-lg shadow-sm w-full h-full p-4 overflow-auto">
+              <ShipmentList />
+            </div>
+          )}
+        </div>
+        
+        <footer className="py-2 text-center text-gray-500 text-xs border-t border-gray-200">
+          <p>YnnAI独立开发 © {new Date().getFullYear()}</p>
+        </footer>
+      </main>
+    </ErrorBoundary>
   );
 } 

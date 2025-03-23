@@ -269,15 +269,40 @@ export async function uploadToBos(file, key) {
   }
 }
 
-// 从BOS key获取URL
-export function getUrlFromBosKey(key) {
-  // 使用完整URL格式，避免DNS解析问题
+// 获取预览URL（直接使用BOS URL）
+export function getPreviewUrl(key) {
   const domain = process.env.BAIDU_BOS_DOMAIN || `${process.env.BAIDU_BOS_BUCKET}.${process.env.BAIDU_BOS_ENDPOINT.replace(/^https?:\/\//, '')}`;
-  
-  // 确保不重复 https://
   const cleanDomain = domain.replace(/^https?:\/\//, '');
-  
   return `https://${cleanDomain}/${key}`;
+}
+
+// 获取下载URL（通过BOS SDK获取带签名的URL）
+export async function getDownloadUrl(key) {
+  try {
+    const client = getBosClient();
+    if (!client) {
+      throw new Error('无法初始化BOS客户端');
+    }
+    
+    const bucket = process.env.BAIDU_BOS_BUCKET || 'ynnaiiamge';
+    
+    // 生成带签名的URL，有效期1小时
+    const signedUrl = await client.generatePresignedUrl(bucket, key, {
+      expirationInSeconds: 3600, // 1小时有效期
+      process: 'none', // 不进行图片处理
+      responseContentDisposition: `attachment; filename="${key.split('/').pop()}"` // 指定下载文件名
+    });
+    
+    return signedUrl;
+  } catch (error) {
+    console.error('生成下载URL失败:', error);
+    throw error;
+  }
+}
+
+// 修改原有的getUrlFromBosKey函数为预览URL
+export function getUrlFromBosKey(key) {
+  return getPreviewUrl(key);
 }
 
 /**

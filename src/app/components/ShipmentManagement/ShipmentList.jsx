@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import { getShipments, updateShipment, deleteShipment } from '../../utils/shipmentStorage';
 import ShipmentDetail from './ShipmentDetail';
+import { getDownloadUrl, getPreviewUrl } from '../../utils/bosStorage';
+import ImageDisplay from '../ImageDisplay';
 
 export default function ShipmentList() {
   const [shipments, setShipments] = useState([]);
@@ -302,8 +304,11 @@ export default function ShipmentList() {
         const textFileName = `${fileNumber}_${addressSanitized}`;
         
         try {
+          // 使用 getDownloadUrl 获取带签名的下载链接
+          const downloadUrl = await getDownloadUrl(shipment.bosKey);
+          
           // 获取图片内容
-          const imgResponse = await fetch(shipment.imageUrl);
+          const imgResponse = await fetch(downloadUrl);
           if (imgResponse.ok) {
             const imgBlob = await imgResponse.blob();
             // 确定图片扩展名
@@ -544,12 +549,11 @@ export default function ShipmentList() {
     if (!file) return null;
     
     const formData = new FormData();
-    formData.append('image', file);
+    formData.append('file', file);
     
     try {
       setUploading(true);
-      // 使用新的专用API而不是百度图像搜索API
-      const response = await fetch('/api/shipment/upload', {
+      const response = await fetch('/api/bos-upload', {
         method: 'POST',
         body: formData,
       });
@@ -561,12 +565,15 @@ export default function ShipmentList() {
       
       const data = await response.json();
       
-      // 检查返回的数据
       if (!data.success) {
         throw new Error('上传失败: ' + (data.message || '未知错误'));
       }
       
-      return { url: data.url, cont_sign: data.cont_sign };
+      return {
+        url: getPreviewUrl(data.key), // 使用预览URL
+        bosKey: data.key,             // 保存bosKey用于下载
+        cont_sign: data.cont_sign
+      };
     } catch (error) {
       console.error('上传图片时出错:', error);
       alert(`上传图片失败: ${error.message}`);
@@ -612,27 +619,16 @@ export default function ShipmentList() {
   const handleAddShipment = async (e) => {
     e.preventDefault();
     
-    if (!newShipment.address.trim()) {
-      alert('请输入收货地址');
-      return;
-    }
-    
-    if (!uploadedImage) {
-      alert('请上传商品图片');
-      return;
-    }
-    
     try {
-      // 上传图片到BOS
       const imageData = await uploadImageToBOS(uploadedImage);
       if (!imageData) return;
       
-      // 创建新的发货记录
       const newRecord = {
         ...newShipment,
         id: Date.now().toString(),
         dateAdded: new Date().toISOString(),
-        imageUrl: imageData.url,
+        imageUrl: imageData.url,    // 预览URL
+        bosKey: imageData.bosKey,   // 保存bosKey
         cont_sign: imageData.cont_sign,
         tags: []
       };
@@ -1199,12 +1195,10 @@ export default function ShipmentList() {
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div className="flex-shrink-0 h-12 w-12 relative">
-                          <Image
-                            src={shipment.imageUrl}
-                            alt="商品图片"
-                            fill
-                            className="object-contain"
-                            sizes="48px"
+                          <ImageDisplay 
+                            imageUrl={getPreviewUrl(shipment.bosKey)}
+                            bosKey={shipment.bosKey}
+                            filename={`${shipment.material || 'unknown'}_${shipment.size || 'standard'}.png`}
                           />
                         </div>
                       </td>

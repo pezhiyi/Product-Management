@@ -147,16 +147,69 @@ export async function uploadToBos(file, key) {
       throw new Error('无法初始化BOS客户端');
     }
     
-    // 准备文件内容
-    const buffer = await file.arrayBuffer();
-    
-    // 确定内容类型，默认为PNG
-    const contentType = file.type || 'image/png';
-    
     // 获取正确的桶名
     const bucket = process.env.BAIDU_BOS_BUCKET || 'ynnaiiamge';
     
-    console.log('尝试上传文件到BOS:', { bucket, key, contentType });
+    // 检查文件大小，如果超过3MB则压缩
+    let uploadFile = file;
+    const fileSizeMB = file.size / (1024 * 1024);
+    
+    if (fileSizeMB > 3) {
+      console.log(`文件大于3MB (${fileSizeMB.toFixed(2)}MB)，进行压缩...`);
+      
+      // 读取文件内容
+      const buffer = await file.arrayBuffer();
+      const blob = new Blob([buffer], { type: file.type });
+      
+      // 创建图片对象
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = URL.createObjectURL(blob);
+      });
+      
+      // 计算新尺寸
+      let width = img.width;
+      let height = img.height;
+      const MAX_WIDTH = 2048;
+      
+      if (width > MAX_WIDTH) {
+        const ratio = MAX_WIDTH / width;
+        width = MAX_WIDTH;
+        height = Math.round(height * ratio);
+      }
+      
+      // 创建canvas进行压缩
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      // 转换为Blob
+      uploadFile = await new Promise(resolve => {
+        canvas.toBlob(blob => {
+          resolve(new File([blob], file.name, { type: 'image/jpeg' }));
+        }, 'image/jpeg', 0.8);
+      });
+      
+      console.log('压缩完成:', {
+        originalSize: `${fileSizeMB.toFixed(2)}MB`,
+        compressedSize: `${(uploadFile.size / (1024 * 1024)).toFixed(2)}MB`,
+        width,
+        height
+      });
+    } else {
+      console.log(`文件小于3MB (${fileSizeMB.toFixed(2)}MB)，不需要压缩`);
+    }
+    
+    console.log('尝试上传文件到BOS:', { 
+      bucket, 
+      key, 
+      contentType: uploadFile.type,
+      fileSize: uploadFile.size
+    });
     
     // 验证桶存在
     try {
@@ -170,54 +223,20 @@ export async function uploadToBos(file, key) {
       };
     }
 
-    // 使用分块上传
-    const partSize = 5 * 1024 * 1024; // 5MB 分块大小
-    const totalSize = buffer.byteLength;
-    const parts = Math.ceil(totalSize / partSize);
-
-    // 初始化分块上传
-    const initResult = await client.initiateMultipartUpload(bucket, key, {
-      'Content-Type': contentType,
-      'x-bce-meta-original-filename': file.name || 'image.png',
-      'x-bce-meta-upload-time': new Date().toISOString()
-    });
-
-    console.log('初始化分块上传:', initResult);
-
-    // 上传各个分块
-    const uploadPromises = [];
-    for (let i = 0; i < parts; i++) {
-      const start = i * partSize;
-      const end = Math.min(start + partSize, totalSize);
-      const partBuffer = buffer.slice(start, end);
-      
-      uploadPromises.push(
-        client.uploadPartFromBlob(
-          bucket,
-          key,
-          initResult.uploadId,
-          i + 1,
-          Buffer.from(partBuffer)
-        )
-      );
-    }
-
-    // 等待所有分块上传完成
-    const uploadResults = await Promise.all(uploadPromises);
-    console.log('所有分块上传完成:', uploadResults);
-
-    // 完成分块上传
-    const completeResult = await client.completeMultipartUpload(
+    // 使用 putObjectFromBlob 直接上传
+    const result = await client.putObjectFromBlob(
       bucket,
       key,
-      initResult.uploadId,
-      uploadResults.map((_, index) => ({
-        partNumber: index + 1,
-        eTag: `"${index + 1}"` // BOS 不要求实际的 ETag
-      }))
+      uploadFile,
+      {
+        'Content-Type': uploadFile.type || 'image/png',
+        'x-bce-meta-original-filename': file.name || 'image.png',
+        'x-bce-meta-upload-time': new Date().toISOString(),
+        'x-bce-meta-compressed': fileSizeMB > 3 ? 'true' : 'false'
+      }
     );
 
-    console.log('完成分块上传:', completeResult);
+    console.log('BOS上传结果:', result);
     
     // 构建文件URL
     const fileUrl = getUrlFromBosKey(key);
@@ -227,8 +246,11 @@ export async function uploadToBos(file, key) {
       success: true,
       url: fileUrl,
       key: key,
-      contentType: contentType,
-      response: completeResult
+      contentType: uploadFile.type,
+      isCompressed: fileSizeMB > 3,
+      originalSize: file.size,
+      uploadedSize: uploadFile.size,
+      response: result
     };
   } catch (error) {
     console.error('上传到BOS失败:', error);

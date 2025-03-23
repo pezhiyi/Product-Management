@@ -45,17 +45,20 @@ export async function POST(request) {
     
     console.log('BOS上传结果:', result);
     
-    // 确保返回JSON响应
+    if (!result.success) {
+      return NextResponse.json(result, { status: 500 });
+    }
+    
     return NextResponse.json(result);
     
   } catch (error) {
     console.error('BOS上传错误:', error);
-    // 确保错误也返回为JSON
     return NextResponse.json(
       { 
         success: false, 
         message: error.message,
-        error: error.toString()
+        error: error.toString(),
+        stack: error.stack
       },
       { status: 500 }
     );

@@ -131,7 +131,7 @@ export async function uploadImageToBos(imageBuffer, contSign, contentType = 'ima
   }
 }
 
-// 检查 uploadToBos 函数
+// 修改 uploadToBos 函数
 export async function uploadToBos(file, key) {
   try {
     console.log('开始BOS上传:', {
@@ -140,34 +140,110 @@ export async function uploadToBos(file, key) {
       key
     });
 
-    // 初始化BOS客户端
-    const client = await initBosClient();
-    if (!client.success) {
+    // 获取BOS客户端
+    const client = getBosClient();
+    
+    if (!client) {
+      throw new Error('无法初始化BOS客户端');
+    }
+    
+    // 准备文件内容
+    const buffer = await file.arrayBuffer();
+    
+    // 确定内容类型，默认为PNG
+    const contentType = file.type || 'image/png';
+    
+    // 获取正确的桶名
+    const bucket = process.env.BAIDU_BOS_BUCKET || 'ynnaiiamge';
+    
+    console.log('尝试上传文件到BOS:', { bucket, key, contentType });
+    
+    // 验证桶存在
+    try {
+      await client.headBucket(bucket);
+      console.log('桶已确认存在，开始上传...');
+    } catch (err) {
+      console.error('检查桶失败:', err);
       return {
         success: false,
-        message: '初始化BOS客户端失败'
+        message: `桶访问错误: ${err.message}`
       };
     }
 
-    // 执行上传
-    const result = await client.instance.putObject(
-      process.env.BAIDU_BOS_BUCKET,
+    // 使用分块上传
+    const partSize = 5 * 1024 * 1024; // 5MB 分块大小
+    const totalSize = buffer.byteLength;
+    const parts = Math.ceil(totalSize / partSize);
+
+    // 初始化分块上传
+    const initResult = await client.initiateMultipartUpload(bucket, key, {
+      'Content-Type': contentType,
+      'x-bce-meta-original-filename': file.name || 'image.png',
+      'x-bce-meta-upload-time': new Date().toISOString()
+    });
+
+    console.log('初始化分块上传:', initResult);
+
+    // 上传各个分块
+    const uploadPromises = [];
+    for (let i = 0; i < parts; i++) {
+      const start = i * partSize;
+      const end = Math.min(start + partSize, totalSize);
+      const partBuffer = buffer.slice(start, end);
+      
+      uploadPromises.push(
+        client.uploadPartFromBlob(
+          bucket,
+          key,
+          initResult.uploadId,
+          i + 1,
+          Buffer.from(partBuffer)
+        )
+      );
+    }
+
+    // 等待所有分块上传完成
+    const uploadResults = await Promise.all(uploadPromises);
+    console.log('所有分块上传完成:', uploadResults);
+
+    // 完成分块上传
+    const completeResult = await client.completeMultipartUpload(
+      bucket,
       key,
-      file
+      initResult.uploadId,
+      uploadResults.map((_, index) => ({
+        partNumber: index + 1,
+        eTag: `"${index + 1}"` // BOS 不要求实际的 ETag
+      }))
     );
 
-    console.log('BOS上传结果:', result);
+    console.log('完成分块上传:', completeResult);
+    
+    // 构建文件URL
+    const fileUrl = getUrlFromBosKey(key);
+    console.log('文件上传成功，URL:', fileUrl);
 
     return {
       success: true,
-      url: getUrlFromBosKey(key),
-      key: key
+      url: fileUrl,
+      key: key,
+      contentType: contentType,
+      response: completeResult
     };
   } catch (error) {
-    console.error('BOS上传错误:', error);
+    console.error('上传到BOS失败:', error);
+    
+    // 提供更详细的错误信息
+    if (error.message.includes('bucket does not exist')) {
+      console.error('桶不存在错误，请检查桶名称和权限');
+    } else if (error.message.includes('signature')) {
+      console.error('签名错误，请检查AK/SK是否正确');
+    }
+    
     return {
       success: false,
-      message: error.message
+      message: error.message,
+      error: error
     };
   }
 }

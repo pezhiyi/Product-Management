@@ -90,12 +90,12 @@ export default function Home() {
         throw new Error('BOS客户端初始化失败，请检查配置');
       }
 
-      // 压缩图片用于搜索库
-      const searchImageBlob = await compressImage(uploadedImage, 2);
+      // 客户端压缩
+      const compressedImage = await compressImage(uploadedImage);
       
       // 添加到搜索库
       const searchFormData = new FormData();
-      searchFormData.append('image', searchImageBlob);
+      searchFormData.append('image', compressedImage);
       searchFormData.append('mode', 'add');
       searchFormData.append('filename', uploadedImage.name);
       

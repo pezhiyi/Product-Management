@@ -13,7 +13,9 @@ let bosClient = null;
 export function getBosClient() {
   if (!bosClient) {
     try {
-      const endpoint = process.env.BAIDU_BOS_ENDPOINT || 'https://gz.bcebos.com';
+      const endpoint = (process.env.BAIDU_BOS_ENDPOINT || 'https://gz.bcebos.com')
+        .replace('http://', 'https://');  // 强制使用 HTTPS
+      
       // 处理可能的密钥格式问题
       const ak = process.env.BAIDU_API_KEY ? process.env.BAIDU_API_KEY.trim() : '';
       const sk = process.env.BAIDU_SECRET_KEY ? process.env.BAIDU_SECRET_KEY.trim() : '';
@@ -25,8 +27,8 @@ export function getBosClient() {
         credentials: {
           ak: ak,
           sk: sk
-        }
-        // 移除其他可能导致问题的参数
+        },
+        protocol: 'https'  // 强制使用 HTTPS
       });
     } catch (error) {
       console.error('初始化BOS客户端失败:', error);
@@ -134,33 +136,36 @@ export async function uploadImageToBos(imageBuffer, contSign, contentType = 'ima
 // 修改 uploadToBos 函数，确保保留原始格式和透明通道
 export async function uploadToBos(file, key) {
   try {
-    // 获取BOS客户端
     const client = getBosClient();
     
     if (!client) {
       throw new Error('无法初始化BOS客户端');
     }
     
-    // 准备文件内容
-    const buffer = await file.arrayBuffer();
-    
-    // 确定内容类型，默认为PNG
+    const bucket = process.env.BAIDU_BOS_BUCKET || 'ynnaiiamge';
     const contentType = file.type || 'image/png';
     
-    // 获取正确的桶名
-    const bucket = process.env.BAIDU_BOS_BUCKET || 'ynnaiiamge';
-    
-    console.log('尝试上传文件到BOS:', { bucket, key, contentType });
+    console.log('尝试上传文件到BOS:', {
+      bucket,
+      key,
+      contentType,
+      endpoint: client.config.endpoint
+    });
     
     // 验证桶存在
     try {
       await client.headBucket(bucket);
       console.log('桶已确认存在，开始上传...');
     } catch (err) {
-      console.error('检查桶失败:', err);
+      console.error('检查桶失败:', {
+        error: err,
+        message: err.message,
+        code: err.code,
+        status: err.status
+      });
       return {
         success: false,
-        message: `桶访问错误: ${err.message}`
+        message: `桶访问错误: ${err.message || JSON.stringify(err)}`
       };
     }
     
@@ -168,7 +173,7 @@ export async function uploadToBos(file, key) {
     const result = await client.putObject(
       bucket,
       key,
-      Buffer.from(buffer),
+      file,
       {
         contentType: contentType,
         metadata: {
@@ -190,18 +195,16 @@ export async function uploadToBos(file, key) {
       response: result
     };
   } catch (error) {
-    console.error('上传到BOS失败:', error);
-    
-    // 提供更详细的错误信息
-    if (error.message.includes('bucket does not exist')) {
-      console.error('桶不存在错误，请检查桶名称和权限');
-    } else if (error.message.includes('signature')) {
-      console.error('签名错误，请检查AK/SK是否正确');
-    }
+    console.error('上传到BOS失败:', {
+      error: error,
+      message: error.message,
+      code: error.code,
+      status: error.status
+    });
     
     return {
       success: false,
-      message: error.message,
+      message: error.message || '上传失败',
       error: error
     };
   }

@@ -13,30 +13,19 @@ let bosClient = null;
 export function getBosClient() {
   if (!bosClient) {
     try {
-      const endpoint = process.env.NEXT_PUBLIC_BAIDU_BOS_ENDPOINT || 'https://gz.bcebos.com';
-      // 使用正确的环境变量名称
-      const ak = process.env.NEXT_PUBLIC_BAIDU_API_KEY?.trim();
-      const sk = process.env.NEXT_PUBLIC_BAIDU_SECRET_KEY?.trim();
+      const endpoint = process.env.BAIDU_BOS_ENDPOINT || 'https://gz.bcebos.com';
+      // 处理可能的密钥格式问题
+      const ak = process.env.BAIDU_API_KEY ? process.env.BAIDU_API_KEY.trim() : '';
+      const sk = process.env.BAIDU_SECRET_KEY ? process.env.BAIDU_SECRET_KEY.trim() : '';
       
-      if (!ak || !sk) {
-        console.error('BOS凭证未配置');
-        return null;
-      }
-      
-      console.log('初始化BOS客户端:', {
-        endpoint,
-        hasAk: !!ak,
-        hasSk: !!sk
-      });
+      console.log(`初始化BOS客户端: 端点=${endpoint}, AK长度=${ak.length}, SK长度=${sk.length}`);
       
       bosClient = new BosClient({
-        endpoint,
+        endpoint: endpoint,
         credentials: {
           ak: ak,
           sk: sk
-        },
-        sessionToken: null,  // 不使用临时凭证
-        region: 'gz'         // 使用固定区域
+        }
       });
     } catch (error) {
       console.error('初始化BOS客户端失败:', error);
@@ -141,7 +130,7 @@ export async function uploadImageToBos(imageBuffer, contSign, contentType = 'ima
   }
 }
 
-// 修改上传函数
+// 修改 uploadToBos 函数
 export async function uploadToBos(file, key) {
   try {
     console.log('开始BOS上传:', {
@@ -152,31 +141,97 @@ export async function uploadToBos(file, key) {
 
     // 获取BOS客户端
     const client = getBosClient();
+    
     if (!client) {
       throw new Error('无法初始化BOS客户端');
     }
     
     // 获取正确的桶名
-    const bucket = process.env.NEXT_PUBLIC_BAIDU_BOS_BUCKET;
-    if (!bucket) {
-      throw new Error('未配置BOS存储桶');
+    const bucket = process.env.BAIDU_BOS_BUCKET || 'ynnaiiamge';
+    
+    // 检查文件大小，如果超过3MB则压缩
+    let uploadFile = file;
+    const fileSizeMB = file.size / (1024 * 1024);
+    
+    if (fileSizeMB > 3) {
+      console.log(`文件大于3MB (${fileSizeMB.toFixed(2)}MB)，进行压缩...`);
+      
+      // 读取文件内容
+      const buffer = await file.arrayBuffer();
+      const blob = new Blob([buffer], { type: file.type });
+      
+      // 创建图片对象
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = URL.createObjectURL(blob);
+      });
+      
+      // 计算新尺寸
+      let width = img.width;
+      let height = img.height;
+      const MAX_WIDTH = 2048;
+      
+      if (width > MAX_WIDTH) {
+        const ratio = MAX_WIDTH / width;
+        width = MAX_WIDTH;
+        height = Math.round(height * ratio);
+      }
+      
+      // 创建canvas进行压缩
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      // 转换为Blob
+      uploadFile = await new Promise(resolve => {
+        canvas.toBlob(blob => {
+          resolve(new File([blob], file.name, { type: 'image/jpeg' }));
+        }, 'image/jpeg', 0.8);
+      });
+      
+      console.log('压缩完成:', {
+        originalSize: `${fileSizeMB.toFixed(2)}MB`,
+        compressedSize: `${(uploadFile.size / (1024 * 1024)).toFixed(2)}MB`,
+        width,
+        height
+      });
+    } else {
+      console.log(`文件小于3MB (${fileSizeMB.toFixed(2)}MB)，不需要压缩`);
     }
     
     console.log('尝试上传文件到BOS:', { 
       bucket, 
       key, 
-      contentType: file.type,
-      fileSize: file.size
+      contentType: uploadFile.type,
+      fileSize: uploadFile.size
     });
+    
+    // 验证桶存在
+    try {
+      await client.headBucket(bucket);
+      console.log('桶已确认存在，开始上传...');
+    } catch (err) {
+      console.error('检查桶失败:', err);
+      return {
+        success: false,
+        message: `桶访问错误: ${err.message}`
+      };
+    }
 
-    // 直接使用 putObjectFromBlob 上传
+    // 使用 putObjectFromBlob 直接上传
     const result = await client.putObjectFromBlob(
       bucket,
       key,
-      file,
+      uploadFile,
       {
-        'Content-Type': file.type || 'image/png',
-        'x-bce-meta-filename': file.name
+        'Content-Type': uploadFile.type || 'image/png',
+        'x-bce-meta-original-filename': file.name || 'image.png',
+        'x-bce-meta-upload-time': new Date().toISOString(),
+        'x-bce-meta-compressed': fileSizeMB > 3 ? 'true' : 'false'
       }
     );
 
@@ -189,13 +244,27 @@ export async function uploadToBos(file, key) {
     return {
       success: true,
       url: fileUrl,
-      key: key
+      key: key,
+      contentType: uploadFile.type,
+      isCompressed: fileSizeMB > 3,
+      originalSize: file.size,
+      uploadedSize: uploadFile.size,
+      response: result
     };
   } catch (error) {
     console.error('上传到BOS失败:', error);
+    
+    // 提供更详细的错误信息
+    if (error.message.includes('bucket does not exist')) {
+      console.error('桶不存在错误，请检查桶名称和权限');
+    } else if (error.message.includes('signature')) {
+      console.error('签名错误，请检查AK/SK是否正确');
+    }
+    
     return {
       success: false,
-      message: error.message
+      message: error.message,
+      error: error
     };
   }
 }

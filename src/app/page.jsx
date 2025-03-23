@@ -110,14 +110,17 @@ export default function Home() {
           }
 
           const bosKey = generateBosKey(null, searchData.cont_sign);
+          const bucket = process.env.BAIDU_BOS_BUCKET || 'ynnaiiamge';
+          
           console.log('准备上传到BOS:', {
-            bucket: process.env.NEXT_PUBLIC_BAIDU_BOS_BUCKET,
+            bucket,
             key: bosKey,
             fileSize: uploadedImage.size
           });
           
+          // 使用 putObjectFromBlob 上传
           const result = await bosClient.putObjectFromBlob(
-            process.env.NEXT_PUBLIC_BAIDU_BOS_BUCKET,
+            bucket,
             bosKey,
             uploadedImage,
             {

@@ -13,36 +13,34 @@ export async function POST(request) {
     const filename = formData.get('filename') || originalImageFile.name || 'upload.jpg';
     const filesize = originalImageFile.size;
     
-    // 添加详细日志
-    console.log('添加图库请求:', {
+    console.log('添加图库 - 接收到请求:', {
       filename,
-      filesize,
+      filesize: `${(filesize / 1024 / 1024).toFixed(2)}MB`,
       type: originalImageFile.type,
       hasFile: !!originalImageFile
     });
     
     if (!originalImageFile) {
+      console.warn('添加图库 - 未提供图片文件');
       return NextResponse.json(
         { success: false, message: '请提供图片' },
         { status: 400 }
       );
     }
     
-    console.log('接收到上传请求:', {
-      filename,
-      filesize,
-      type: originalImageFile.type
-    });
-    
     // 获取原始buffer
     const originalBuffer = await originalImageFile.arrayBuffer();
-    console.log('原始图片大小:', originalBuffer.byteLength);
+    console.log('添加图库 - 原始图片大小:', {
+      bytes: originalBuffer.byteLength,
+      mb: (originalBuffer.byteLength / 1024 / 1024).toFixed(2) + 'MB'
+    });
     
     // 压缩处理
     let searchImageBuffer;
     let isCompressed = false;
     
     if (filesize > 3 * 1024 * 1024) {
+      console.log('添加图库 - 开始压缩图片...');
       try {
         searchImageBuffer = await compressImage(originalBuffer, {
           maxSize: 3 * 1024 * 1024,
@@ -52,14 +50,18 @@ export async function POST(request) {
           preserveFormat: true
         });
         isCompressed = true;
-        console.log('压缩后大小:', searchImageBuffer.length);
+        console.log('添加图库 - 压缩完成:', {
+          originalSize: `${(filesize / 1024 / 1024).toFixed(2)}MB`,
+          compressedSize: `${(searchImageBuffer.length / 1024 / 1024).toFixed(2)}MB`,
+          compressionRatio: `${((1 - searchImageBuffer.length / filesize) * 100).toFixed(1)}%`
+        });
       } catch (compressError) {
-        console.error('压缩图片失败:', compressError);
-        // 如果压缩失败，使用原始图片
+        console.error('添加图库 - 压缩失败:', compressError);
         searchImageBuffer = Buffer.from(originalBuffer);
         isCompressed = false;
       }
     } else {
+      console.log('添加图库 - 图片小于3MB，跳过压缩');
       searchImageBuffer = Buffer.from(originalBuffer);
       isCompressed = false;
     }
@@ -71,10 +73,15 @@ export async function POST(request) {
       { type: originalImageFile.type || 'image/png' }
     );
     
+    console.log('添加图库 - 开始添加到搜索库:', {
+      filename,
+      size: `${(searchImageFile.size / 1024 / 1024).toFixed(2)}MB`,
+      type: searchImageFile.type
+    });
+    
     // 添加到图像搜索库
-    console.log('开始添加到搜索库...');
     const searchLibraryResult = await addToImageSearchLibrary(searchImageFile);
-    console.log('搜索库添加结果:', searchLibraryResult);
+    console.log('添加图库 - 搜索库添加结果:', searchLibraryResult);
     
     if (!searchLibraryResult.success) {
       return NextResponse.json(
@@ -141,7 +148,7 @@ export async function POST(request) {
     });
     
   } catch (error) {
-    console.error('添加图片完整错误:', error);
+    console.error('添加图库 - 完整错误:', error);
     return NextResponse.json(
       { success: false, message: `添加图片失败: ${error.message}` },
       { status: 500 }

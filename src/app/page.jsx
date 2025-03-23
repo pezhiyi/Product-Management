@@ -9,14 +9,6 @@ import Gallery from './components/ImageLibrary/Gallery';
 import Header from './components/Header';
 import { addToLibrary } from './utils/libraryStorage';
 import ShipmentList from './components/ShipmentManagement/ShipmentList';
-import { 
-  getBosClient, 
-  generateBosKey, 
-  getPreviewUrl,
-  uploadToBos 
-} from './utils/bosStorage';
-import { compressImage } from './utils/imageProcessor';
-import ErrorBoundary from './components/ErrorBoundary';
 
 export default function Home() {
   const [uploadedImage, setUploadedImage] = useState(null);
@@ -43,163 +35,198 @@ export default function Home() {
     return () => window.removeEventListener('resize', checkIfMobile);
   }, []);
 
-  useEffect(() => {
-    // 监控 uploadedImage 状态变化
-    console.log('uploadedImage 状态更新:', {
-      hasImage: !!uploadedImage,
-      name: uploadedImage?.name,
-      size: uploadedImage?.size
-    });
-  }, [uploadedImage]);
+  const handleImageUpload = async (file, autoSearch = false) => {
+    if (!file) {
+      setError('请选择有效的图片文件');
+      return;
+    }
 
-  const handleImageUpload = async (file) => {
     try {
-      if (!file) {
-        throw new Error('请选择图片文件');
-      }
-
-      // 检查文件类型
-      if (!file.type.startsWith('image/')) {
-        throw new Error('请上传图片文件');
-      }
-
-      console.log('处理上传文件:', {
-        name: file.name,
-        type: file.type,
-        size: file.size
-      });
-
-      // 清除之前的状态
-      setError('');
-      setSuccessMessage('');
+      // 保存文件到状态
       setUploadedImage(file);
+      
+      // 保存到 localStorage
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        localStorage.setItem('lastUploadedImage', reader.result);
+        localStorage.setItem('lastUploadedImageName', file.name);
+        localStorage.setItem('lastUploadedImageType', file.type);
+      };
+      reader.readAsDataURL(file);
 
+      if (autoSearch) {
+        handleSearch(file);
+      }
     } catch (error) {
-      console.error('处理图片失败:', error);
-      setError(error.message);
-      setUploadedImage(null);
+      console.error('处理图片文件失败:', error);
+      setError('处理图片文件失败，请重试');
     }
   };
 
   const handleAddToLibrary = async () => {
     if (!uploadedImage) {
+      console.warn('添加图库 - 未选择图片');
       setError('请先上传图片');
       return;
     }
 
+    console.log('添加图库 - 开始处理:', {
+      filename: uploadedImage.name,
+      size: `${(uploadedImage.size / 1024 / 1024).toFixed(2)}MB`,
+      type: uploadedImage.type
+    });
+
     setIsLoading(true);
     setError('');
-    setSuccessMessage('');
 
     try {
-      // 检查BOS客户端
-      const bosClient = getBosClient();
-      if (!bosClient) {
-        throw new Error('BOS客户端初始化失败，请检查配置');
+      // 第一步：准备图片处理
+      const imageSize = uploadedImage.size / (1024 * 1024);
+      let searchImageBlob = uploadedImage;
+      
+      // 如果图片大于3MB，为搜索图库压缩图片
+      if (imageSize > 3) {
+        console.log('添加图库 - 开始压缩图片...');
+        searchImageBlob = await compressImage(uploadedImage, 3);
+        console.log('添加图库 - 压缩完成:', {
+          originalSize: `${imageSize.toFixed(2)}MB`,
+          compressedSize: `${(searchImageBlob.size / (1024 * 1024)).toFixed(2)}MB`
+        });
       }
-
-      // 客户端压缩
-      const compressedImage = await compressImage(uploadedImage);
       
-      // 添加到搜索库
-      const searchFormData = new FormData();
-      searchFormData.append('image', compressedImage);
-      searchFormData.append('mode', 'add');
-      searchFormData.append('filename', uploadedImage.name);
+      // 第二步：准备表单数据
+      const formData = new FormData();
+      formData.append('image', searchImageBlob);
+      formData.append('originalImage', uploadedImage);
+      formData.append('mode', 'add');
+      formData.append('filename', uploadedImage.name);
+      formData.append('filesize', uploadedImage.size);
       
-      const searchResponse = await fetch('/api/baidu/add', {
+      console.log('添加图库 - 发送请求...');
+      
+      // 第三步：发送到API
+      const response = await fetch('/api/baidu/add', {
         method: 'POST',
-        body: searchFormData,
+        body: formData,
       });
       
-      if (!searchResponse.ok) {
-        const errorData = await searchResponse.json();
-        throw new Error(errorData.message || '添加到搜索库失败');
+      const data = await response.json();
+      console.log('添加图库 - 收到响应:', data);
+      
+      if (!response.ok) {
+        throw new Error(data.message || '添加到图库失败');
       }
       
-      const searchData = await searchResponse.json();
+      setSuccessMessage('图片已成功添加到搜索图库和商品图库');
+      console.log('添加图库 - 成功完成');
       
-      // 如果搜索库添加成功，上传原图到BOS
-      if (searchData.cont_sign) {
-        const bosKey = generateBosKey(null, searchData.cont_sign);
-        
-        // 使用统一的上传函数
-        const bosResult = await uploadToBos(uploadedImage, bosKey);
-        
-        if (!bosResult.success) {
-          throw new Error(bosResult.message || '上传到BOS失败');
-        }
-        
-        // 添加到本地图库
+      // 添加到本地图库
+      if (data.cont_sign) {
         addToLibrary({
-          cont_sign: searchData.cont_sign,
-          bosUrl: bosResult.url,
-          bosKey: bosResult.key,
+          cont_sign: data.cont_sign,
+          bosUrl: data.imageUrl || data.bosUrl,
           filesize: uploadedImage.size,
           filename: uploadedImage.name,
         });
-        
-        setSuccessMessage('图片已成功添加到搜索图库和商品图库');
-        
-        // 清理状态
-        setTimeout(() => {
-          setSuccessMessage('');
-          setUploadedImage(null);
-        }, 3000);
+        console.log('添加图库 - 已更新本地图库');
       }
+      
     } catch (error) {
-      console.error('添加图库错误:', error);
-      setError(error.message || '添加失败，请重试');
+      console.error('添加图库 - 错误:', error);
+      setError(error.message);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleSearch = async (imageFile = null) => {
-    const fileToSearch = imageFile || uploadedImage;
-    if (!fileToSearch) {
-      setError('请先上传图片');
-      return;
-    }
+  // 图片压缩函数
+  const compressImage = (file, maxSizeMB) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      
+      reader.onload = (event) => {
+        // 使用全局 window.Image 而不是导入的 Next.js Image 组件
+        const img = new window.Image();
+        img.src = event.target.result;
+        
+        img.onload = () => {
+          let quality = 0.7; // 初始压缩质量
+          let canvas = document.createElement('canvas');
+          let ctx = canvas.getContext('2d');
+          
+          // 保持宽高比例
+          let width = img.width;
+          let height = img.height;
+          
+          // 设置画布尺寸
+          canvas.width = width;
+          canvas.height = height;
+          
+          // 绘制图片
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          // 使用递归压缩直到小于maxSizeMB
+          const compressLoop = (q) => {
+            canvas.toBlob((blob) => {
+              // 检查大小
+              if (blob.size / (1024 * 1024) <= maxSizeMB || q <= 0.1) {
+                resolve(blob);
+              } else {
+                // 继续压缩
+                q -= 0.1;
+                compressLoop(q);
+              }
+            }, file.type, q);
+          };
+          
+          compressLoop(quality);
+        };
+        
+        img.onerror = () => {
+          reject(new Error('图片加载失败'));
+        };
+      };
+      
+      reader.onerror = () => {
+        reject(new Error('文件读取失败'));
+      };
+    });
+  };
 
-    if (!fileToSearch.type.startsWith('image/')) {
-      setError('请上传有效的图片文件');
-      return;
-    }
-
+  const handleSearch = async (file) => {
     setIsLoading(true);
     setError('');
-    setSearchResults([]);
-
+    
     try {
-      console.log('开始搜索图片:', {
-        name: fileToSearch.name,
-        type: fileToSearch.type,
-        size: fileToSearch.size
-      });
+      if (!file) {
+        throw new Error('请先上传图片文件');
+      }
 
-      // 压缩图片用于搜索
-      const searchImageBlob = await compressImage(fileToSearch, 2);
-      
+      // 创建 FormData
       const formData = new FormData();
-      formData.append('image', searchImageBlob);
+      formData.append('image', file);
       formData.append('mode', 'search');
       
       const response = await fetch('/api/baidu/search', {
         method: 'POST',
         body: formData,
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || '搜索失败');
-      }
-
+      
       const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.message || '搜索失败');
+      }
+      
       setSearchResults(data.results || []);
+      
+      if (!data.results?.length) {
+        setError('未找到相似图片，请尝试其他图片或先添加图片到库中');
+      }
     } catch (error) {
-      console.error('搜索错误:', error);
-      setError(error.message || '搜索失败，请重试');
+      console.error('搜索失败:', error);
+      setError(error.message);
     } finally {
       setIsLoading(false);
     }
@@ -231,80 +258,78 @@ export default function Home() {
   };
 
   return (
-    <ErrorBoundary>
-      <main className="h-screen flex flex-col bg-gray-50">
-        <Header activeTab={activeTab} onTabChange={setActiveTab} />
-        
-        <div className="flex-grow p-4 sm:p-6 overflow-hidden">
-          {activeTab === 'search' ? (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-full">
-              <div className="bg-white border border-gray-100 rounded-lg shadow-sm p-4 flex flex-col h-[calc(100vh-160px)] lg:h-auto">
-                <h2 className="text-base font-medium text-gray-700 mb-3 flex items-center">
-                  <svg className="w-4 h-4 mr-2 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" 
-                      d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                  </svg>
-                  图片上传
-                </h2>
-                
-                <div className="flex-grow mb-3">
-                  <ImageUpload 
-                    onImageUpload={handleImageUpload} 
-                    onSearch={handleSearch}
-                    hasImage={!!uploadedImage} 
-                    uploadedImage={uploadedImage}
-                  />
-                </div>
-                
-                <div>
-                  <SearchControls 
-                    onAddToLibrary={handleAddToLibrary} 
-                    onSearch={handleSearch} 
-                    isLoading={isLoading} 
-                  />
-                  
-                  {error && (
-                    <div className="mt-2 p-2 bg-red-50 text-red-600 text-sm rounded-md">
-                      {error}
-                    </div>
-                  )}
-                  
-                  {successMessage && (
-                    <div className="mt-2 p-2 bg-green-50 text-green-600 text-sm rounded-md">
-                      {successMessage}
-                    </div>
-                  )}
-                </div>
+    <main className="h-screen flex flex-col bg-gray-50">
+      <Header activeTab={activeTab} onTabChange={setActiveTab} />
+      
+      <div className="flex-grow p-4 sm:p-6 overflow-hidden">
+        {activeTab === 'search' ? (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-full">
+            <div className="bg-white border border-gray-100 rounded-lg shadow-sm p-4 flex flex-col h-[calc(100vh-160px)] lg:h-auto">
+              <h2 className="text-base font-medium text-gray-700 mb-3 flex items-center">
+                <svg className="w-4 h-4 mr-2 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" 
+                    d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+                图片上传
+              </h2>
+              
+              <div className="flex-grow mb-3">
+                <ImageUpload 
+                  onImageUpload={handleImageUpload} 
+                  onSearch={handleSearch}
+                  hasImage={!!uploadedImage} 
+                  uploadedImage={uploadedImage}
+                />
               </div>
               
-              <div className="bg-white border border-gray-100 rounded-lg shadow-sm lg:col-span-2 p-4 flex flex-col h-[calc(100vh-160px)] lg:h-[calc(100vh-160px)] overflow-hidden">
-                <h2 className="text-base font-medium text-gray-700 mb-3 flex items-center">
-                  <svg className="w-4 h-4 mr-2 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" 
-                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                  搜索结果
-                </h2>
-                <div className="flex-grow overflow-auto pr-1">
-                  <ResultGrid results={searchResults} isLoading={isLoading} isMobile={isMobile} />
-                </div>
+              <div>
+                <SearchControls 
+                  onAddToLibrary={handleAddToLibrary} 
+                  onSearch={handleSearch} 
+                  isLoading={isLoading} 
+                />
+                
+                {error && (
+                  <div className="mt-2 p-2 bg-red-50 text-red-600 text-sm rounded-md">
+                    {error}
+                  </div>
+                )}
+                
+                {successMessage && (
+                  <div className="mt-2 p-2 bg-green-50 text-green-600 text-sm rounded-md">
+                    {successMessage}
+                  </div>
+                )}
               </div>
             </div>
-          ) : activeTab === 'library' ? (
-            <div className="bg-white border border-gray-100 rounded-lg shadow-sm w-full h-full p-4 overflow-auto">
-              <Gallery onSelectImage={handleSelectFromLibrary} />
+            
+            <div className="bg-white border border-gray-100 rounded-lg shadow-sm lg:col-span-2 p-4 flex flex-col h-[calc(100vh-160px)] lg:h-[calc(100vh-160px)] overflow-hidden">
+              <h2 className="text-base font-medium text-gray-700 mb-3 flex items-center">
+                <svg className="w-4 h-4 mr-2 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" 
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                搜索结果
+              </h2>
+              <div className="flex-grow overflow-auto pr-1">
+                <ResultGrid results={searchResults} isLoading={isLoading} isMobile={isMobile} />
+              </div>
             </div>
-          ) : (
-            <div className="bg-white border border-gray-100 rounded-lg shadow-sm w-full h-full p-4 overflow-auto">
-              <ShipmentList />
-            </div>
-          )}
-        </div>
-        
-        <footer className="py-2 text-center text-gray-500 text-xs border-t border-gray-200">
-          <p>YnnAI独立开发 © {new Date().getFullYear()}</p>
-        </footer>
-      </main>
-    </ErrorBoundary>
+          </div>
+        ) : activeTab === 'library' ? (
+          <div className="bg-white border border-gray-100 rounded-lg shadow-sm w-full h-full p-4 overflow-auto">
+            <Gallery onSelectImage={handleSelectFromLibrary} />
+          </div>
+        ) : (
+          <div className="bg-white border border-gray-100 rounded-lg shadow-sm w-full h-full p-4 overflow-auto">
+            <ShipmentList />
+          </div>
+        )}
+      </div>
+      
+      <footer className="py-2 text-center text-gray-500 text-xs border-t border-gray-200">
+        <p>YnnAI独立开发 © {new Date().getFullYear()}</p>
+      </footer>
+    </main>
   );
 } 

@@ -33,6 +33,13 @@ export default function SearchControls({ onAddToLibrary, onSearch, isLoading }) 
 
   const handleAddToLibrary = async () => {
     const file = await getImageFromStorage();
+    console.log('从 localStorage 获取的图片:', {
+      hasFile: !!file,
+      name: file?.name,
+      type: file?.type,
+      size: file?.size
+    });
+    
     if (file) {
       onAddToLibrary(file);
     }

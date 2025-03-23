@@ -35,6 +35,15 @@ export default function Home() {
     return () => window.removeEventListener('resize', checkIfMobile);
   }, []);
 
+  useEffect(() => {
+    // 监控 uploadedImage 状态变化
+    console.log('uploadedImage 状态更新:', {
+      hasImage: !!uploadedImage,
+      name: uploadedImage?.name,
+      size: uploadedImage?.size
+    });
+  }, [uploadedImage]);
+
   const handleImageUpload = async (file, autoSearch = false) => {
     if (!file) {
       setError('请选择有效的图片文件');
@@ -45,12 +54,25 @@ export default function Home() {
       // 保存文件到状态
       setUploadedImage(file);
       
-      // 保存到 localStorage
+      // 保存到 localStorage - 添加错误处理和日志
       const reader = new FileReader();
       reader.onloadend = () => {
-        localStorage.setItem('lastUploadedImage', reader.result);
-        localStorage.setItem('lastUploadedImageName', file.name);
-        localStorage.setItem('lastUploadedImageType', file.type);
+        try {
+          localStorage.setItem('lastUploadedImage', reader.result);
+          localStorage.setItem('lastUploadedImageName', file.name);
+          localStorage.setItem('lastUploadedImageType', file.type);
+          
+          console.log('图片已保存到 localStorage:', {
+            name: file.name,
+            type: file.type,
+            size: file.size
+          });
+        } catch (error) {
+          console.error('保存到 localStorage 失败:', error);
+        }
+      };
+      reader.onerror = (error) => {
+        console.error('读取文件失败:', error);
       };
       reader.readAsDataURL(file);
 
@@ -64,6 +86,15 @@ export default function Home() {
   };
 
   const handleAddToLibrary = async () => {
+    console.log('开始添加到图库:', {
+      hasUploadedImage: !!uploadedImage,
+      imageDetails: uploadedImage ? {
+        name: uploadedImage.name,
+        size: uploadedImage.size,
+        type: uploadedImage.type
+      } : null
+    });
+
     if (!uploadedImage) {
       setError('请先上传图片');
       return;

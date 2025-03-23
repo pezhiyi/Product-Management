@@ -35,28 +35,44 @@ export default function ImageUpload({ onImageUpload, onSearch, hasImage, uploade
   const processUploadedFile = async (file, autoSearch = false) => {
     if (!file) return;
     
+    let previewUrl = null;
     try {
       // 检查文件类型
       if (!file.type.startsWith('image/')) {
         throw new Error('请上传图片文件');
       }
       
-      // 创建预览
-      const previewUrl = URL.createObjectURL(file);
+      // 创建预览URL
+      previewUrl = URL.createObjectURL(file);
       setPreview(previewUrl);
+      
+      // 保存到localStorage
+      localStorage.setItem('lastUploadedImageName', file.name);
+      localStorage.setItem('lastUploadedImageType', file.type);
       
       // 调用父组件的上传处理
       await onImageUpload(file, autoSearch);
     } catch (error) {
       console.error('图片上传错误:', error);
       setError(error.message);
+      setPreview(null);
+    } finally {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
     }
   };
   
   // 处理文件选择
   const handleFileChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      processUploadedFile(e.target.files[0]);
+    const file = e.target.files?.[0];
+    if (file) {
+      console.log('选择文件:', {
+        name: file.name,
+        type: file.type,
+        size: file.size
+      });
+      processUploadedFile(file);
     }
   };
 

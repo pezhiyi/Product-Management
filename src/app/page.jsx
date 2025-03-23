@@ -57,12 +57,23 @@ export default function Home() {
       if (!file) {
         throw new Error('请选择图片文件');
       }
-      
+
+      // 检查文件类型
+      if (!file.type.startsWith('image/')) {
+        throw new Error('请上传图片文件');
+      }
+
+      console.log('处理上传文件:', {
+        name: file.name,
+        type: file.type,
+        size: file.size
+      });
+
       // 清除之前的状态
       setError('');
       setSuccessMessage('');
       setUploadedImage(file);
-      
+
     } catch (error) {
       console.error('处理图片失败:', error);
       setError(error.message);
@@ -151,11 +162,22 @@ export default function Home() {
       return;
     }
 
+    if (!fileToSearch.type.startsWith('image/')) {
+      setError('请上传有效的图片文件');
+      return;
+    }
+
     setIsLoading(true);
     setError('');
     setSearchResults([]);
 
     try {
+      console.log('开始搜索图片:', {
+        name: fileToSearch.name,
+        type: fileToSearch.type,
+        size: fileToSearch.size
+      });
+
       // 压缩图片用于搜索
       const searchImageBlob = await compressImage(fileToSearch, 2);
       

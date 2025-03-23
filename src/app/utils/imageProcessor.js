@@ -38,4 +38,18 @@ export async function compressImage(file, maxSizeMB = 2) {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+export function isValidImageFile(file) {
+  const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+  return file && file.type && validTypes.includes(file.type);
+}
+
+export function getFileDetails(file) {
+  return {
+    name: file.name,
+    type: file.type,
+    size: file.size,
+    lastModified: file.lastModified
+  };
 } 

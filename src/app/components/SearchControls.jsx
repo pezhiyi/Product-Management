@@ -1,6 +1,6 @@
 export default function SearchControls({ onAddToLibrary, onSearch, isLoading }) {
   const getImageFromStorage = async () => {
-    const imageData = localStorage.getItem('lastUploadedImage');
+    const imageData = sessionStorage.getItem('lastUploadedImage');
     const imageName = localStorage.getItem('lastUploadedImageName');
     const imageType = localStorage.getItem('lastUploadedImageType');
     
@@ -10,7 +10,6 @@ export default function SearchControls({ onAddToLibrary, onSearch, isLoading }) 
     }
 
     try {
-      // 将 base64 转换回 File 对象
       const response = await fetch(imageData);
       const blob = await response.blob();
       return new File([blob], imageName || 'image.jpg', { 

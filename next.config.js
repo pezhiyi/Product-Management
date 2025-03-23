@@ -2,11 +2,13 @@
 const nextConfig = {
   reactStrictMode: true,
   images: {
-    domains: ['aip.baidubce.com', 'gz.bcebos.com', 'ynnaiiamge.gz.bcebos.com'], // 更新百度云存储域名
+    domains: ['gz.bcebos.com', 'ynnaiiamge.gz.bcebos.com'],
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: '**', // 允许所有域名的图片（生产环境建议限制）
+        hostname: '**.bcebos.com',
+        port: '',
+        pathname: '/**',
       },
     ],
   },

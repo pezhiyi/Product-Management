@@ -14,18 +14,21 @@ export function getBosClient() {
   if (!bosClient) {
     try {
       const endpoint = process.env.BAIDU_BOS_ENDPOINT || 'https://gz.bcebos.com';
-      // 处理可能的密钥格式问题
-      const ak = process.env.BAIDU_API_KEY ? process.env.BAIDU_API_KEY.trim() : '';
-      const sk = process.env.BAIDU_SECRET_KEY ? process.env.BAIDU_SECRET_KEY.trim() : '';
+      // 确保从环境变量正确获取密钥
+      const ak = process.env.BAIDU_BOS_AK || process.env.BAIDU_API_KEY || '';
+      const sk = process.env.BAIDU_BOS_SK || process.env.BAIDU_SECRET_KEY || '';
       
-      console.log(`初始化BOS客户端: 端点=${endpoint}, AK长度=${ak.length}, SK长度=${sk.length}`);
+      if (!ak || !sk) {
+        throw new Error('BOS密钥未配置');
+      }
       
       bosClient = new BosClient({
-        endpoint: endpoint,
+        endpoint,
         credentials: {
-          ak: ak,
-          sk: sk
-        }
+          ak: ak.trim(),
+          sk: sk.trim()
+        },
+        sessionToken: null  // 明确设置为null
       });
     } catch (error) {
       console.error('初始化BOS客户端失败:', error);
@@ -271,7 +274,15 @@ export async function uploadToBos(file, key) {
 
 // 获取预览URL（直接使用BOS URL）
 export function getPreviewUrl(key) {
-  const domain = process.env.BAIDU_BOS_DOMAIN || `${process.env.BAIDU_BOS_BUCKET}.${process.env.BAIDU_BOS_ENDPOINT.replace(/^https?:\/\//, '')}`;
+  if (!key) return '';
+  
+  const domain = process.env.BAIDU_BOS_DOMAIN;
+  if (!domain) {
+    const endpoint = process.env.BAIDU_BOS_ENDPOINT || 'https://gz.bcebos.com';
+    const bucket = process.env.BAIDU_BOS_BUCKET || 'ynnaiiamge';
+    return `${endpoint}/${bucket}/${key}`;
+  }
+  
   const cleanDomain = domain.replace(/^https?:\/\//, '');
   return `https://${cleanDomain}/${key}`;
 }

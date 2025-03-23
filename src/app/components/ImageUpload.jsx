@@ -34,25 +34,21 @@ export default function ImageUpload({ onImageUpload, onSearch, hasImage, uploade
   const processUploadedFile = async (file, autoSearch = false) => {
     if (!file) return;
     
-    // 检查文件类型
-    if (!supportedFormats.includes(file.type)) {
-      alert('不支持的文件格式，请上传 JPG, PNG, WEBP, GIF 或 BMP 图片');
-      return;
-    }
-
+    let previewUrl = null;
     try {
       // 创建预览URL
-      const previewUrl = URL.createObjectURL(file);
+      previewUrl = URL.createObjectURL(file);
       setPreview(previewUrl);
       
-      // 创建小尺寸预览图
+      // 2. 创建小尺寸预览图用于存储
       const img = document.createElement('img');
       
       await new Promise((resolve, reject) => {
         img.onload = () => {
           try {
+            // 3. 创建小尺寸的canvas
             const canvas = document.createElement('canvas');
-            const MAX_PREVIEW_SIZE = 400; // 更小的预览尺寸
+            const MAX_PREVIEW_SIZE = 400;
             let width = img.width;
             let height = img.height;
             
@@ -67,7 +63,7 @@ export default function ImageUpload({ onImageUpload, onSearch, hasImage, uploade
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, width, height);
             
-            // 存储压缩后的预览图
+            // 4. 存储压缩后的预览图到localStorage
             const previewDataUrl = canvas.toDataURL('image/jpeg', 0.6);
             localStorage.setItem('lastUploadedImagePreview', previewDataUrl);
             localStorage.setItem('lastUploadedImageName', file.name);
@@ -82,14 +78,15 @@ export default function ImageUpload({ onImageUpload, onSearch, hasImage, uploade
         img.src = previewUrl;
       });
       
-      // 调用上传回调
+      // 5. 调用上传回调
       onImageUpload(file, autoSearch);
       
     } catch (error) {
       console.error('处理图片失败:', error);
     } finally {
-      // 清理预览URL
-      URL.revokeObjectURL(previewUrl);
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
     }
   };
   

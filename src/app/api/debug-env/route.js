@@ -17,9 +17,11 @@ export async function GET() {
     
     // 测试 BOS 连接
     let bosStatus = '未测试';
+    const bucket = process.env.BAIDU_BOS_BUCKET || 'ynnaiiamge';
+    console.log('尝试列出对象，桶:', bucket);
     try {
-      // 尝试列出桶中的对象
-      const listResult = await bosClient.listObjects(process.env.BAIDU_BOS_BUCKET || 'ynnaiiamge', {
+      // 尝试直接访问桶
+      const listResult = await bosClient.listObjects(bucket, {
         maxKeys: 1
       });
       bosStatus = '连接成功';
@@ -36,15 +38,20 @@ export async function GET() {
           contents: listResult.contents ? `找到 ${listResult.contents.length} 个对象` : '无对象'
         }
       });
-    } catch (bosError) {
-      bosStatus = `BOS测试失败: ${bosError.message}`;
+    } catch (error) {
+      console.error('BOS操作失败:', error);
+      bosStatus = `BOS测试失败: ${error.message}`;
       
       return NextResponse.json({
         environment: envInfo,
-        bosClient: 'BOS客户端初始化成功，但连接测试失败',
-        bosStatus: bosStatus,
-        error: bosError.message,
-        stack: bosError.stack
+        bosClient: 'BOS客户端初始化成功，但操作失败',
+        bosDetail: {
+          endpoint: bosClient.config.endpoint,
+          region: bosClient.config.region || '未指定',
+          bucket: bucket
+        },
+        error: error.message,
+        stack: error.stack
       }, { status: 500 });
     }
   } catch (error) {

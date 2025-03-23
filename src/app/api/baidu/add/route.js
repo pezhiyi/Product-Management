@@ -13,6 +13,14 @@ export async function POST(request) {
     const filename = formData.get('filename') || originalImageFile.name || 'upload.jpg';
     const filesize = originalImageFile.size;
     
+    // 添加详细日志
+    console.log('添加图库请求:', {
+      filename,
+      filesize,
+      type: originalImageFile.type,
+      hasFile: !!originalImageFile
+    });
+    
     if (!originalImageFile) {
       return NextResponse.json(
         { success: false, message: '请提供图片' },
@@ -26,39 +34,47 @@ export async function POST(request) {
       type: originalImageFile.type
     });
     
-    // 1. 准备两个版本的图片 - 原始版和用于搜索的压缩版
+    // 获取原始buffer
     const originalBuffer = await originalImageFile.arrayBuffer();
+    console.log('原始图片大小:', originalBuffer.byteLength);
     
-    // 检查图片大小，如果超过3MB，则压缩用于搜索库
+    // 压缩处理
     let searchImageBuffer;
     let isCompressed = false;
     
     if (filesize > 3 * 1024 * 1024) {
-      // 压缩图片用于搜索图库
-      searchImageBuffer = await compressImage(originalBuffer, {
-        maxSize: 3 * 1024 * 1024,
-        minWidth: 50,
-        maxWidth: 1024,
-        quality: 80,
-        preserveFormat: true
-      });
-      isCompressed = true;
-      console.log(`图片已压缩: ${filesize} → ${searchImageBuffer.length} 字节`);
+      try {
+        searchImageBuffer = await compressImage(originalBuffer, {
+          maxSize: 3 * 1024 * 1024,
+          minWidth: 50,
+          maxWidth: 1024,
+          quality: 80,
+          preserveFormat: true
+        });
+        isCompressed = true;
+        console.log('压缩后大小:', searchImageBuffer.length);
+      } catch (compressError) {
+        console.error('压缩图片失败:', compressError);
+        // 如果压缩失败，使用原始图片
+        searchImageBuffer = Buffer.from(originalBuffer);
+        isCompressed = false;
+      }
     } else {
-      // 图片已经小于3MB，直接使用
       searchImageBuffer = Buffer.from(originalBuffer);
       isCompressed = false;
     }
     
-    // 创建File对象用于搜索图库上传
+    // 创建搜索用的File对象
     const searchImageFile = new File(
       [searchImageBuffer], 
       filename, 
       { type: originalImageFile.type || 'image/png' }
     );
     
-    // 2. 先添加到图像搜索库 (压缩版本)
+    // 添加到图像搜索库
+    console.log('开始添加到搜索库...');
     const searchLibraryResult = await addToImageSearchLibrary(searchImageFile);
+    console.log('搜索库添加结果:', searchLibraryResult);
     
     if (!searchLibraryResult.success) {
       return NextResponse.json(
@@ -125,7 +141,7 @@ export async function POST(request) {
     });
     
   } catch (error) {
-    console.error('添加图片失败:', error);
+    console.error('添加图片完整错误:', error);
     return NextResponse.json(
       { success: false, message: `添加图片失败: ${error.message}` },
       { status: 500 }

@@ -14,25 +14,23 @@ export function getBosClient() {
   if (!bosClient) {
     try {
       const endpoint = process.env.BAIDU_BOS_ENDPOINT || 'https://gz.bcebos.com';
-      // 确保从环境变量正确获取密钥
-      const ak = process.env.BAIDU_BOS_AK || process.env.BAIDU_API_KEY || '';
-      const sk = process.env.BAIDU_BOS_SK || process.env.BAIDU_SECRET_KEY || '';
+      // 处理可能的密钥格式问题
+      const ak = process.env.BAIDU_API_KEY ? process.env.BAIDU_API_KEY.trim() : '';
+      const sk = process.env.BAIDU_SECRET_KEY ? process.env.BAIDU_SECRET_KEY.trim() : '';
       
-      if (!ak || !sk) {
-        throw new Error('BOS密钥未配置');
-      }
+      console.log(`初始化BOS客户端: 端点=${endpoint}, AK长度=${ak.length}, SK长度=${sk.length}`);
       
       bosClient = new BosClient({
-        endpoint,
+        endpoint: endpoint,
         credentials: {
-          ak: ak.trim(),
-          sk: sk.trim()
-        },
-        sessionToken: null  // 明确设置为null
+          ak: ak,
+          sk: sk
+        }
+        // 移除其他可能导致问题的参数
       });
     } catch (error) {
       console.error('初始化BOS客户端失败:', error);
-      return null;
+      throw error;
     }
   }
   return bosClient;
@@ -133,15 +131,9 @@ export async function uploadImageToBos(imageBuffer, contSign, contentType = 'ima
   }
 }
 
-// 修改 uploadToBos 函数
+// 修改 uploadToBos 函数，确保保留原始格式和透明通道
 export async function uploadToBos(file, key) {
   try {
-    console.log('开始BOS上传:', {
-      fileSize: file.size,
-      fileName: file.name,
-      key
-    });
-
     // 获取BOS客户端
     const client = getBosClient();
     
@@ -149,69 +141,16 @@ export async function uploadToBos(file, key) {
       throw new Error('无法初始化BOS客户端');
     }
     
+    // 准备文件内容
+    const buffer = await file.arrayBuffer();
+    
+    // 确定内容类型，默认为PNG
+    const contentType = file.type || 'image/png';
+    
     // 获取正确的桶名
     const bucket = process.env.BAIDU_BOS_BUCKET || 'ynnaiiamge';
     
-    // 检查文件大小，如果超过3MB则压缩
-    let uploadFile = file;
-    const fileSizeMB = file.size / (1024 * 1024);
-    
-    if (fileSizeMB > 3) {
-      console.log(`文件大于3MB (${fileSizeMB.toFixed(2)}MB)，进行压缩...`);
-      
-      // 读取文件内容
-      const buffer = await file.arrayBuffer();
-      const blob = new Blob([buffer], { type: file.type });
-      
-      // 创建图片对象
-      const img = new Image();
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-        img.src = URL.createObjectURL(blob);
-      });
-      
-      // 计算新尺寸
-      let width = img.width;
-      let height = img.height;
-      const MAX_WIDTH = 2048;
-      
-      if (width > MAX_WIDTH) {
-        const ratio = MAX_WIDTH / width;
-        width = MAX_WIDTH;
-        height = Math.round(height * ratio);
-      }
-      
-      // 创建canvas进行压缩
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, width, height);
-      
-      // 转换为Blob
-      uploadFile = await new Promise(resolve => {
-        canvas.toBlob(blob => {
-          resolve(new File([blob], file.name, { type: 'image/jpeg' }));
-        }, 'image/jpeg', 0.8);
-      });
-      
-      console.log('压缩完成:', {
-        originalSize: `${fileSizeMB.toFixed(2)}MB`,
-        compressedSize: `${(uploadFile.size / (1024 * 1024)).toFixed(2)}MB`,
-        width,
-        height
-      });
-    } else {
-      console.log(`文件小于3MB (${fileSizeMB.toFixed(2)}MB)，不需要压缩`);
-    }
-    
-    console.log('尝试上传文件到BOS:', { 
-      bucket, 
-      key, 
-      contentType: uploadFile.type,
-      fileSize: uploadFile.size
-    });
+    console.log('尝试上传文件到BOS:', { bucket, key, contentType });
     
     // 验证桶存在
     try {
@@ -224,34 +163,30 @@ export async function uploadToBos(file, key) {
         message: `桶访问错误: ${err.message}`
       };
     }
-
-    // 使用 putObjectFromBlob 直接上传
-    const result = await client.putObjectFromBlob(
+    
+    // 使用正确的参数顺序上传到BOS
+    const result = await client.putObject(
       bucket,
       key,
-      uploadFile,
+      Buffer.from(buffer),
       {
-        'Content-Type': uploadFile.type || 'image/png',
-        'x-bce-meta-original-filename': file.name || 'image.png',
-        'x-bce-meta-upload-time': new Date().toISOString(),
-        'x-bce-meta-compressed': fileSizeMB > 3 ? 'true' : 'false'
+        contentType: contentType,
+        metadata: {
+          'x-bce-meta-original-filename': file.name || 'image.png',
+          'x-bce-meta-upload-time': new Date().toISOString()
+        }
       }
     );
-
-    console.log('BOS上传结果:', result);
     
     // 构建文件URL
     const fileUrl = getUrlFromBosKey(key);
     console.log('文件上传成功，URL:', fileUrl);
-
+    
     return {
       success: true,
       url: fileUrl,
       key: key,
-      contentType: uploadFile.type,
-      isCompressed: fileSizeMB > 3,
-      originalSize: file.size,
-      uploadedSize: uploadFile.size,
+      contentType: contentType,
       response: result
     };
   } catch (error) {
@@ -272,48 +207,15 @@ export async function uploadToBos(file, key) {
   }
 }
 
-// 获取预览URL（直接使用BOS URL）
-export function getPreviewUrl(key) {
-  if (!key) return '';
-  
-  const domain = process.env.BAIDU_BOS_DOMAIN;
-  if (!domain) {
-    const endpoint = process.env.BAIDU_BOS_ENDPOINT || 'https://gz.bcebos.com';
-    const bucket = process.env.BAIDU_BOS_BUCKET || 'ynnaiiamge';
-    return `${endpoint}/${bucket}/${key}`;
-  }
-  
-  const cleanDomain = domain.replace(/^https?:\/\//, '');
-  return `https://${cleanDomain}/${key}`;
-}
-
-// 获取下载URL（通过BOS SDK获取带签名的URL）
-export async function getDownloadUrl(key) {
-  try {
-    const client = getBosClient();
-    if (!client) {
-      throw new Error('无法初始化BOS客户端');
-    }
-    
-    const bucket = process.env.BAIDU_BOS_BUCKET || 'ynnaiiamge';
-    
-    // 生成带签名的URL，有效期1小时
-    const signedUrl = await client.generatePresignedUrl(bucket, key, {
-      expirationInSeconds: 3600, // 1小时有效期
-      process: 'none', // 不进行图片处理
-      responseContentDisposition: `attachment; filename="${key.split('/').pop()}"` // 指定下载文件名
-    });
-    
-    return signedUrl;
-  } catch (error) {
-    console.error('生成下载URL失败:', error);
-    throw error;
-  }
-}
-
-// 修改原有的getUrlFromBosKey函数为预览URL
+// 从BOS key获取URL
 export function getUrlFromBosKey(key) {
-  return getPreviewUrl(key);
+  // 使用完整URL格式，避免DNS解析问题
+  const domain = process.env.BAIDU_BOS_DOMAIN || `${process.env.BAIDU_BOS_BUCKET}.${process.env.BAIDU_BOS_ENDPOINT.replace(/^https?:\/\//, '')}`;
+  
+  // 确保不重复 https://
+  const cleanDomain = domain.replace(/^https?:\/\//, '');
+  
+  return `https://${cleanDomain}/${key}`;
 }
 
 /**
@@ -345,4 +247,18 @@ export function getImageUrlFromSearchItem(item) {
   }
   
   return null;
+}
+
+// 添加清理临时预览图片的函数
+export async function cleanupPreviewImage(key) {
+  if (!key.startsWith('temp/preview_')) return;
+  
+  try {
+    const client = getBosClient();
+    const bucket = process.env.BAIDU_BOS_BUCKET || 'ynnaiiamge';
+    await client.deleteObject(bucket, key);
+    console.log('清理临时预览图片:', key);
+  } catch (error) {
+    console.error('清理预览图片失败:', error);
+  }
 } 

@@ -2,10 +2,13 @@
 
 import { useRef, useState, useEffect } from 'react';
 import Image from 'next/image';
+import { validateImage } from '../utils/imageValidator';
+import { uploadToBos, generateBosKey } from '../utils/bosStorage';
 
-export default function ImageUpload({ onImageUpload, onSearch, hasImage, uploadedImage }) {
+export default function ImageUpload({ onImageUpload, onSearch, hasImage }) {
   const [preview, setPreview] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef(null);
   const dropAreaRef = useRef(null);
   const [error, setError] = useState(null);
@@ -16,64 +19,113 @@ export default function ImageUpload({ onImageUpload, onSearch, hasImage, uploade
   // 添加粘贴事件监听器
   useEffect(() => {
     const handlePaste = (e) => {
+      console.group('📋 处理粘贴事件');
       const items = e.clipboardData.items;
+      console.log('粘贴项数量:', items.length);
       
       for (let i = 0; i < items.length; i++) {
+        console.log(`检查第 ${i + 1} 项:`, {
+          type: items[i].type,
+          kind: items[i].kind
+        });
+        
         if (items[i].type.indexOf('image') !== -1) {
           const file = items[i].getAsFile();
-          processUploadedFile(file, true); // 传递true表示自动搜索
+          console.log('📄 找到图片文件:', {
+            name: file.name,
+            type: file.type,
+            size: `${(file.size / 1024 / 1024).toFixed(2)}MB`
+          });
+          processUploadedFile(file, true);
           break;
         }
       }
+      console.groupEnd();
     };
     
     document.addEventListener('paste', handlePaste);
     return () => document.removeEventListener('paste', handlePaste);
   }, []);
   
-  // 修改图片预览处理
+  // 处理上传的文件
   const processUploadedFile = async (file, autoSearch = false) => {
-    if (!file) return;
+    if (!file) {
+      console.log('❌ 未提供文件');
+      return;
+    }
     
-    let previewUrl = null;
+    console.group('📤 处理上传文件');
+    console.log('文件信息:', {
+      name: file.name,
+      type: file.type,
+      size: `${(file.size / 1024 / 1024).toFixed(2)}MB`,
+      lastModified: new Date(file.lastModified).toISOString()
+    });
+    
     try {
-      // 检查文件类型
-      if (!file.type.startsWith('image/')) {
-        throw new Error('请上传图片文件');
+      console.log('🔍 开始验证图片...');
+      await validateImage(file);
+      console.log('✅ 图片验证通过');
+      
+      // 上传到BOS获取预览URL
+      setIsUploading(true);
+      console.log('📦 准备上传到BOS...');
+      
+      // 使用临时key，避免污染正式图库
+      const tempKey = `temp/preview_${Date.now()}_${file.name}`;
+      console.log('🔑 生成临时Key:', tempKey);
+      
+      const uploadResult = await uploadToBos(file, tempKey);
+      console.log('📨 BOS上传结果:', uploadResult);
+      
+      if (uploadResult.success) {
+        console.log('🖼️ 设置BOS预览URL:', uploadResult.url);
+        setPreview(uploadResult.url);
+        
+        console.log('⏩ 继续上传流程，autoSearch:', autoSearch);
+        onImageUpload(file, autoSearch);
+        
+        // 记录成功状态
+        console.log('✅ 文件处理完成');
+      } else {
+        throw new Error(`预览图片上传失败: ${uploadResult.message}`);
       }
-      
-      // 创建预览URL
-      previewUrl = URL.createObjectURL(file);
-      setPreview(previewUrl);
-      
-      // 保存到localStorage
-      localStorage.setItem('lastUploadedImageName', file.name);
-      localStorage.setItem('lastUploadedImageType', file.type);
-      
-      // 调用父组件的上传处理
-      await onImageUpload(file, autoSearch);
     } catch (error) {
-      console.error('图片上传错误:', error);
+      console.error('❌ 处理文件错误:', error);
       setError(error.message);
-      setPreview(null);
+      
+      // 如果BOS上传失败，回退到本地预览
+      console.log('⚠️ 回退到本地预览');
+      const localPreviewUrl = URL.createObjectURL(file);
+      setPreview(localPreviewUrl);
+      
+      // 记录回退操作
+      console.log('🔄 已切换到本地预览:', {
+        error: error.message,
+        previewUrl: localPreviewUrl
+      });
     } finally {
-      if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
-      }
+      setIsUploading(false);
+      console.groupEnd();
     }
   };
   
   // 处理文件选择
   const handleFileChange = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      console.log('选择文件:', {
+    console.group('📂 文件选择事件');
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      console.log('选择的文件:', {
         name: file.name,
         type: file.type,
-        size: file.size
+        size: `${(file.size / 1024 / 1024).toFixed(2)}MB`,
+        lastModified: new Date(file.lastModified).toISOString()
       });
       processUploadedFile(file);
+    } else {
+      console.log('❌ 未选择文件');
     }
+    console.groupEnd();
   };
 
   const handleDragOver = (e) => {
@@ -93,10 +145,21 @@ export default function ImageUpload({ onImageUpload, onSearch, hasImage, uploade
     e.stopPropagation();
     setIsDragging(false);
     
-    const file = e.dataTransfer.files[0];
-    if (file) {
+    console.group('🎯 文件拖放事件');
+    const dt = e.dataTransfer;
+    if (dt.files && dt.files[0]) {
+      const file = dt.files[0];
+      console.log('拖放的文件:', {
+        name: file.name,
+        type: file.type,
+        size: `${(file.size / 1024 / 1024).toFixed(2)}MB`,
+        lastModified: new Date(file.lastModified).toISOString()
+      });
       processUploadedFile(file);
+    } else {
+      console.log('❌ 拖放未包含文件');
     }
+    console.groupEnd();
   };
 
   // 初始预览状态同步
@@ -108,18 +171,20 @@ export default function ImageUpload({ onImageUpload, onSearch, hasImage, uploade
 
   return (
     <div className="h-full" ref={dropAreaRef}>
-      <div 
-        className={`border border-dashed rounded-lg text-center cursor-pointer transition-all h-full flex items-center justify-center ${
-          isDragging 
-            ? 'border-blue-400 bg-blue-50' 
-            : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
-        }`}
+      <div className={`border border-dashed rounded-lg text-center cursor-pointer transition-all h-full flex items-center justify-center ${
+        isDragging ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
+      }`}
         onClick={() => fileInputRef.current.click()}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        {preview ? (
+        {isUploading ? (
+          <div className="flex flex-col items-center justify-center p-6">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+            <p className="mt-2 text-sm text-gray-600">正在处理图片...</p>
+          </div>
+        ) : preview ? (
           <div className="relative w-full h-full">
             <Image 
               src={preview} 
@@ -169,6 +234,12 @@ export default function ImageUpload({ onImageUpload, onSearch, hasImage, uploade
           onChange={handleFileChange}
         />
       </div>
+      
+      {error && (
+        <div className="mt-2 p-2 text-sm text-red-600 bg-red-50 rounded">
+          {error}
+        </div>
+      )}
     </div>
   );
 } 

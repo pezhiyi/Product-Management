@@ -86,15 +86,6 @@ export default function Home() {
   };
 
   const handleAddToLibrary = async () => {
-    console.log('开始添加到图库:', {
-      hasUploadedImage: !!uploadedImage,
-      imageDetails: uploadedImage ? {
-        name: uploadedImage.name,
-        size: uploadedImage.size,
-        type: uploadedImage.type
-      } : null
-    });
-
     if (!uploadedImage) {
       setError('请先上传图片');
       return;
@@ -104,22 +95,9 @@ export default function Home() {
     setError('');
 
     try {
-      // 1. 压缩图片用于搜索，目标大小改为2.8MB
-      console.log('开始处理图片:', {
-        size: (uploadedImage.size / (1024 * 1024)).toFixed(2) + 'MB',
-        type: uploadedImage.type,
-        name: uploadedImage.name
-      });
-      
-      const searchImageBlob = await compressImage(uploadedImage, 2.8); // 改为2.8MB
-      console.log('压缩完成:', {
-        originalSize: (uploadedImage.size / (1024 * 1024)).toFixed(2) + 'MB',
-        compressedSize: (searchImageBlob.size / (1024 * 1024)).toFixed(2) + 'MB'
-      });
-      
-      // 2. 先添加到搜索库
+      // 1. 先添加到搜索库
       const searchFormData = new FormData();
-      searchFormData.append('image', searchImageBlob);
+      searchFormData.append('image', uploadedImage);
       searchFormData.append('mode', 'add');
       searchFormData.append('filename', uploadedImage.name);
       
@@ -137,35 +115,34 @@ export default function Home() {
       
       const searchData = await searchResponse.json();
       
-      // 3. 如果搜索库添加成功，再上传原图到BOS
+      // 2. 如果搜索库添加成功，再上传原图到BOS
       if (searchData.cont_sign) {
         console.log('搜索库添加成功，开始上传原图到BOS...');
         
-        const bosFormData = new FormData();
-        bosFormData.append('file', uploadedImage);
-        bosFormData.append('cont_sign', searchData.cont_sign);
+        // 使用 fetch 直接上传到 BOS
+        const bosClient = getBosClient();
+        const bosKey = generateBosKey(null, searchData.cont_sign);
         
-        const bosResponse = await fetch('/api/bos-upload', {
-          method: 'POST',
-          body: bosFormData,
-        });
+        const result = await bosClient.putObjectFromBlob(
+          process.env.BAIDU_BOS_BUCKET,
+          bosKey,
+          uploadedImage,
+          {
+            'Content-Type': uploadedImage.type || 'image/png',
+            'x-bce-meta-original-filename': uploadedImage.name
+          }
+        );
         
-        let bosData;
-        try {
-          bosData = await bosResponse.json();
-        } catch (error) {
-          console.error('解析BOS响应失败:', error);
-          throw new Error('上传到BOS失败: 无法解析响应');
+        if (!result) {
+          throw new Error('上传到BOS失败');
         }
         
-        if (!bosResponse.ok || !bosData.success) {
-          throw new Error(bosData.message || '上传到BOS失败');
-        }
+        const bosUrl = getUrlFromBosKey(bosKey);
         
-        // 4. 添加到本地图库
+        // 3. 添加到本地图库
         addToLibrary({
           cont_sign: searchData.cont_sign,
-          bosUrl: bosData.url,
+          bosUrl: bosUrl,
           filesize: uploadedImage.size,
           filename: uploadedImage.name,
         });

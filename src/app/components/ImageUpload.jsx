@@ -3,7 +3,7 @@
 import { useRef, useState, useEffect } from 'react';
 import Image from 'next/image';
 
-export default function ImageUpload({ onImageUpload, onSearch, hasImage }) {
+export default function ImageUpload({ onImageUpload, onSearch, hasImage, uploadedImage }) {
   const [preview, setPreview] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef(null);
@@ -30,6 +30,52 @@ export default function ImageUpload({ onImageUpload, onSearch, hasImage }) {
     return () => document.removeEventListener('paste', handlePaste);
   }, []);
   
+  // 修改存储方式，使用压缩后的预览图存储
+  const storeImageData = async (file) => {
+    try {
+      // 创建一个小预览图用于存储
+      const img = new Image();
+      const reader = new FileReader();
+      
+      await new Promise((resolve, reject) => {
+        reader.onload = (e) => {
+          img.onload = resolve;
+          img.onerror = reject;
+          img.src = e.target.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      // 创建一个小尺寸的预览图
+      const canvas = document.createElement('canvas');
+      const MAX_PREVIEW_SIZE = 800; // 预览图最大尺寸
+      let width = img.width;
+      let height = img.height;
+      
+      if (width > MAX_PREVIEW_SIZE) {
+        const ratio = MAX_PREVIEW_SIZE / width;
+        width = MAX_PREVIEW_SIZE;
+        height = Math.round(height * ratio);
+      }
+      
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      // 存储压缩后的预览图
+      const previewDataUrl = canvas.toDataURL('image/jpeg', 0.6);
+      localStorage.setItem('lastUploadedImage', previewDataUrl);
+      localStorage.setItem('lastUploadedImageName', file.name);
+      localStorage.setItem('lastUploadedImageType', file.type);
+      
+      console.log('预览图已保存到 localStorage');
+    } catch (error) {
+      console.error('保存预览图失败:', error);
+    }
+  };
+  
   // 处理上传的文件
   const processUploadedFile = (file, autoSearch = false) => {
     if (!file) return;
@@ -45,15 +91,7 @@ export default function ImageUpload({ onImageUpload, onSearch, hasImage }) {
     setPreview(previewUrl);
     
     // 缓存图片数据到本地存储
-    const reader = new FileReader();
-    reader.onload = function(e) {
-      // 存储图片数据和元信息
-      localStorage.setItem('lastUploadedImage', e.target.result);
-      localStorage.setItem('lastUploadedImageName', file.name);
-      localStorage.setItem('lastUploadedImageType', file.type);
-      localStorage.setItem('lastUploadedImageTime', Date.now().toString());
-    };
-    reader.readAsDataURL(file);
+    storeImageData(file);
     
     // 调用上传回调
     onImageUpload(file, autoSearch);

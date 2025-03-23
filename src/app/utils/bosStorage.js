@@ -131,78 +131,43 @@ export async function uploadImageToBos(imageBuffer, contSign, contentType = 'ima
   }
 }
 
-// 修改 uploadToBos 函数，确保保留原始格式和透明通道
+// 检查 uploadToBos 函数
 export async function uploadToBos(file, key) {
   try {
-    // 获取BOS客户端
-    const client = getBosClient();
-    
-    if (!client) {
-      throw new Error('无法初始化BOS客户端');
-    }
-    
-    // 准备文件内容
-    const buffer = await file.arrayBuffer();
-    
-    // 确定内容类型，默认为PNG
-    const contentType = file.type || 'image/png';
-    
-    // 获取正确的桶名
-    const bucket = process.env.BAIDU_BOS_BUCKET || 'ynnaiiamge';
-    
-    console.log('尝试上传文件到BOS:', { bucket, key, contentType });
-    
-    // 验证桶存在
-    try {
-      await client.headBucket(bucket);
-      console.log('桶已确认存在，开始上传...');
-    } catch (err) {
-      console.error('检查桶失败:', err);
+    console.log('开始BOS上传:', {
+      fileSize: file.size,
+      fileName: file.name,
+      key
+    });
+
+    // 初始化BOS客户端
+    const client = await initBosClient();
+    if (!client.success) {
       return {
         success: false,
-        message: `桶访问错误: ${err.message}`
+        message: '初始化BOS客户端失败'
       };
     }
-    
-    // 使用正确的参数顺序上传到BOS
-    const result = await client.putObject(
-      bucket,
+
+    // 执行上传
+    const result = await client.instance.putObject(
+      process.env.BAIDU_BOS_BUCKET,
       key,
-      Buffer.from(buffer),
-      {
-        contentType: contentType,
-        metadata: {
-          'x-bce-meta-original-filename': file.name || 'image.png',
-          'x-bce-meta-upload-time': new Date().toISOString()
-        }
-      }
+      file
     );
-    
-    // 构建文件URL
-    const fileUrl = getUrlFromBosKey(key);
-    console.log('文件上传成功，URL:', fileUrl);
-    
+
+    console.log('BOS上传结果:', result);
+
     return {
       success: true,
-      url: fileUrl,
-      key: key,
-      contentType: contentType,
-      response: result
+      url: getUrlFromBosKey(key),
+      key: key
     };
   } catch (error) {
-    console.error('上传到BOS失败:', error);
-    
-    // 提供更详细的错误信息
-    if (error.message.includes('bucket does not exist')) {
-      console.error('桶不存在错误，请检查桶名称和权限');
-    } else if (error.message.includes('signature')) {
-      console.error('签名错误，请检查AK/SK是否正确');
-    }
-    
+    console.error('BOS上传错误:', error);
     return {
       success: false,
-      message: error.message,
-      error: error
+      message: error.message
     };
   }
 }

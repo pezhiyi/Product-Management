@@ -41,6 +41,12 @@ const nextConfig = {
       bodySizeLimit: '100mb',
     },
   },
+  api: {
+    bodyParser: {
+      sizeLimit: '100mb',
+    },
+    responseLimit: '100mb',
+  },
   async headers() {
     return [
       {

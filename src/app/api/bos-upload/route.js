@@ -16,6 +16,14 @@ export async function OPTIONS(request) {
   });
 }
 
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '100mb',
+    },
+  },
+};
+
 export async function POST(request) {
   try {
     const formData = await request.formData();
@@ -44,23 +52,18 @@ export async function POST(request) {
     
     console.log('BOS上传结果:', result);
     
-    if (!result.success) {
-      return NextResponse.json(
-        { success: false, message: result.message },
-        { status: 500 }
-      );
-    }
-    
-    return NextResponse.json({
-      success: true,
-      url: result.url,
-      key: result.key
-    });
+    // 确保返回JSON响应
+    return NextResponse.json(result);
     
   } catch (error) {
     console.error('BOS上传错误:', error);
+    // 确保错误也返回为JSON
     return NextResponse.json(
-      { success: false, message: error.message },
+      { 
+        success: false, 
+        message: error.message,
+        error: error.toString()
+      },
       { status: 500 }
     );
   }

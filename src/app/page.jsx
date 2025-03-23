@@ -150,9 +150,15 @@ export default function Home() {
           body: bosFormData,
         });
         
-        const bosData = await bosResponse.json();
+        let bosData;
+        try {
+          bosData = await bosResponse.json();
+        } catch (error) {
+          console.error('解析BOS响应失败:', error);
+          throw new Error('上传到BOS失败: 无法解析响应');
+        }
         
-        if (!bosResponse.ok) {
+        if (!bosResponse.ok || !bosData.success) {
           throw new Error(bosData.message || '上传到BOS失败');
         }
         

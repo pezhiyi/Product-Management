@@ -73,59 +73,72 @@ export default function Home() {
     setError('');
 
     try {
-      // 总是压缩用于搜索的图片
+      // 1. 压缩图片用于搜索，目标大小改为2.8MB
       console.log('开始处理图片:', {
         size: (uploadedImage.size / (1024 * 1024)).toFixed(2) + 'MB',
         type: uploadedImage.type,
         name: uploadedImage.name
       });
       
-      // 压缩图片用于搜索库
-      const searchImageBlob = await compressImage(uploadedImage, 2); // 压缩到2MB以确保安全
+      const searchImageBlob = await compressImage(uploadedImage, 2.8); // 改为2.8MB
       console.log('压缩完成:', {
         originalSize: (uploadedImage.size / (1024 * 1024)).toFixed(2) + 'MB',
         compressedSize: (searchImageBlob.size / (1024 * 1024)).toFixed(2) + 'MB'
       });
       
-      // 准备表单数据
-      const formData = new FormData();
-      formData.append('image', searchImageBlob); // 压缩后的图片用于搜索
-      formData.append('originalImage', uploadedImage); // 原始图片用于BOS存储
-      formData.append('mode', 'add');
-      formData.append('filename', uploadedImage.name);
-      formData.append('filesize', uploadedImage.size);
+      // 2. 先添加到搜索库
+      const searchFormData = new FormData();
+      searchFormData.append('image', searchImageBlob);
+      searchFormData.append('mode', 'add');
+      searchFormData.append('filename', uploadedImage.name);
       
-      console.log('发送请求...');
+      console.log('发送搜索库请求...');
       
-      const response = await fetch('/api/baidu/add', {
+      const searchResponse = await fetch('/api/baidu/add', {
         method: 'POST',
-        body: formData,
+        body: searchFormData,
       });
       
-      // 检查响应类型
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        throw new Error(`服务器返回了非JSON响应: ${contentType}`);
+      if (!searchResponse.ok) {
+        const searchData = await searchResponse.json();
+        throw new Error(searchData.message || '添加到搜索库失败');
       }
       
-      const data = await response.json();
+      const searchData = await searchResponse.json();
       
-      if (!response.ok) {
-        throw new Error(data.message || '添加到图库失败');
-      }
-      
-      setSuccessMessage('图片已成功添加到搜索图库和商品图库');
-      setTimeout(() => setSuccessMessage(''), 3000);
-      
-      // 添加到本地图库
-      if (data.cont_sign) {
+      // 3. 如果搜索库添加成功，再上传原图到BOS
+      if (searchData.cont_sign) {
+        console.log('搜索库添加成功，开始上传原图到BOS...');
+        
+        const bosFormData = new FormData();
+        bosFormData.append('file', uploadedImage);
+        bosFormData.append('cont_sign', searchData.cont_sign);
+        
+        const bosResponse = await fetch('/api/bos-upload', {
+          method: 'POST',
+          body: bosFormData,
+        });
+        
+        const bosData = await bosResponse.json();
+        
+        if (!bosResponse.ok) {
+          throw new Error(bosData.message || '上传到BOS失败');
+        }
+        
+        // 4. 添加到本地图库
         addToLibrary({
-          cont_sign: data.cont_sign,
-          bosUrl: data.imageUrl || data.bosUrl,
+          cont_sign: searchData.cont_sign,
+          bosUrl: bosData.url,
           filesize: uploadedImage.size,
           filename: uploadedImage.name,
         });
+        
+        setSuccessMessage('图片已成功添加到搜索图库和商品图库');
+      } else {
+        setSuccessMessage('图片已添加到搜索图库');
       }
+      
+      setTimeout(() => setSuccessMessage(''), 3000);
       
     } catch (error) {
       console.error('添加图库错误:', error);
@@ -146,7 +159,7 @@ export default function Home() {
         img.src = event.target.result;
         
         img.onload = () => {
-          let quality = 0.7; // 初始压缩质量
+          let quality = 0.9; // 提高初始质量 (从0.7改为0.9)
           let canvas = document.createElement('canvas');
           let ctx = canvas.getContext('2d');
           
@@ -154,8 +167,8 @@ export default function Home() {
           let width = img.width;
           let height = img.height;
           
-          // 如果图片尺寸过大，先缩小尺寸
-          const MAX_WIDTH = 1024;
+          // 调整最大宽度限制
+          const MAX_WIDTH = 2048; // 增加最大宽度 (从1024改为2048)
           if (width > MAX_WIDTH) {
             const ratio = MAX_WIDTH / width;
             width = MAX_WIDTH;
@@ -178,7 +191,7 @@ export default function Home() {
                 size: sizeMB.toFixed(2) + 'MB'
               });
               
-              if (sizeMB <= maxSizeMB || q <= 0.1) {
+              if (sizeMB <= maxSizeMB || q <= 0.5) { // 提高最小质量限制 (从0.1改为0.5)
                 console.log('压缩完成:', {
                   finalQuality: q.toFixed(2),
                   finalSize: sizeMB.toFixed(2) + 'MB',
@@ -187,11 +200,11 @@ export default function Home() {
                 });
                 resolve(blob);
               } else {
-                // 继续压缩，更大的压缩步长
-                q -= 0.2;
-                compressLoop(Math.max(0.1, q));
+                // 减小压缩步长
+                q -= 0.1; // 减小步长 (从0.2改为0.1)
+                compressLoop(Math.max(0.5, q)); // 确保不低于0.5
               }
-            }, 'image/jpeg', q); // 统一使用JPEG格式
+            }, 'image/jpeg', q); // 保持JPEG格式
           };
           
           compressLoop(quality);
